@@ -1,0 +1,166 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-image:
+    radial-gradient(ellipse 80% 50% at 15% -10%, rgba(255, 77, 109, 0.18), transparent),
+    radial-gradient(ellipse 60% 50% at 100% 0%, rgba(255, 138, 61, 0.12), transparent),
+    radial-gradient(ellipse 60% 60% at 50% 110%, rgba(99, 102, 241, 0.14), transparent);
+  background-attachment: fixed;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.card-felt {
+  background:
+    radial-gradient(ellipse 120% 90% at 50% 0%, rgba(255, 255, 255, 0.05), transparent 60%),
+    linear-gradient(180deg, #0f1222 0%, #090a14 100%);
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+html[data-theme="light"] body {
+  color: #202236;
+  background-color: #f3f4fa;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 15% -10%, rgba(255, 77, 109, 0.12), transparent),
+    radial-gradient(ellipse 60% 50% at 100% 0%, rgba(255, 138, 61, 0.1), transparent),
+    radial-gradient(ellipse 60% 60% at 50% 110%, rgba(99, 102, 241, 0.09), transparent);
+}
+
+html[data-theme="light"] header,
+html[data-theme="light"] [class*="bg-[#07080f]"],
+html[data-theme="light"] [class*="bg-[#05060f]"],
+html[data-theme="light"] [class*="bg-[#13152a]"],
+html[data-theme="light"] [class*="bg-[#121422]"],
+html[data-theme="light"] [class*="bg-[#171827]"],
+html[data-theme="light"] [class*="bg-[#1a1c33]"],
+html[data-theme="light"] [class*="bg-[#142536]"] {
+  background-color: rgba(255, 255, 255, 0.88) !important;
+}
+
+html[data-theme="light"] .card-felt {
+  background: linear-gradient(180deg, #f5f6fc 0%, #e9ebf5 100%);
+}
+
+html[data-theme="light"] [class*="bg-white/"] {
+  background-color: rgba(30, 34, 58, 0.055) !important;
+}
+
+html[data-theme="light"] [class*="border-white/"]:not(.uno-card-art *) {
+  border-color: rgba(30, 34, 58, 0.14) !important;
+}
+
+html[data-theme="light"] [class*="text-white"]:not(.uno-card-art *),
+html[data-theme="light"] [class*="placeholder:text-white"]::placeholder {
+  color: #272a40 !important;
+}
+
+html[data-theme="light"] [class*="text-rose-200"],
+html[data-theme="light"] [class*="text-rose-300"] {
+  color: #a5163a !important;
+}
+
+html[data-theme="light"] [class*="text-emerald-300"] {
+  color: #08764e !important;
+}
+
+html[data-theme="light"] [class*="text-amber-100"],
+html[data-theme="light"] [class*="text-amber-300"] {
+  color: #86520a !important;
+}
+
+html[data-theme="light"] [class*="text-sky-100"] {
+  color: #075985 !important;
+}
+
+html[data-theme="light"] [class*="text-[#ff8a6a]"]:not(.uno-card-art *),
+html[data-theme="light"] [class*="text-[#ff7a59]"]:not(.uno-card-art *),
+html[data-theme="light"] [class*="text-[#ff8a3d]"]:not(.uno-card-art *),
+html[data-theme="light"] [class*="text-[#ff8a9a]"]:not(.uno-card-art *),
+html[data-theme="light"] [class*="text-[#ffb174]"]:not(.uno-card-art *),
+html[data-theme="light"] [class*="text-[#ff4d6d]"]:not(.uno-card-art *) {
+  color: #ad3444 !important;
+}
+
+html[data-theme="light"] [class*="bg-gradient-to"] [class*="text-white"],
+html[data-theme="light"] [class*="bg-gradient-to"].text-white {
+  color: #fff !important;
+}
+
+html[data-theme="light"] .uno-card-art [class*="text-white"] {
+  color: #fff !important;
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0) rotate(var(--rot, -6deg)); }
+  50% { transform: translateY(-16px) rotate(var(--rot, -6deg)); }
+}
+.animate-float-slow {
+  animation: float-slow 6s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 77, 109, 0.55); }
+  50% { box-shadow: 0 0 0 10px rgba(255, 77, 109, 0); }
+}
+.animate-pulse-glow {
+  animation: pulse-glow 1.6s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.reduced-motion * {
+  animation: none !important;
+  transition-duration: 0.001ms !important;
+}
