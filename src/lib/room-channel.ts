@@ -26,6 +26,8 @@ import type {
   RoomSettings,
   RoomStatus,
 } from "./types";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+import { getRealtimeClient } from "./realtime-client";
 import {
   autoResolveTimeout,
   buildPublicState,
@@ -70,7 +72,9 @@ type WireMessage =
   | { type: "state"; payload: PersistedState }
   | { type: "presence"; playerId: string; nickname: string; ts: number }
   | { type: "host-bye"; playerId: string }
-  | { type: "request-sync"; playerId: string };
+  | { type: "request-sync"; playerId: string }
+  | { type: "join"; playerId: string; nickname: string }
+  | { type: "join-error"; playerId: string; reason: string };
 
 export type RoomSnapshot = {
   room: RoomRecord | null;
@@ -89,6 +93,7 @@ const ROOMS_INDEX_KEY = "uno-tongkrongan:rooms-index";
 const PRESENCE_TIMEOUT_MS = 9000;
 const HOST_TIMEOUT_MS = 11000;
 const BOT_THINK_MS = 950;
+const ROOM_SYNC_TIMEOUT_MS = 8000;
 
 function storageKey(code: string) {
   return `${STORAGE_PREFIX}${code.toUpperCase()}`;
@@ -154,6 +159,12 @@ export class RoomChannel {
   readonly code: string;
   readonly selfId: string;
   private bc: BroadcastChannel | null = null;
+  private realtime: RealtimeChannel | null = null;
+  private realtimeReady = false;
+  private pendingNickname: string | null = null;
+  private pendingJoinSent = false;
+  private requestTimer: ReturnType<typeof setTimeout> | null = null;
+  private transportError: string | null = null;
   private listeners = new Set<(snap: RoomSnapshot) => void>();
   private presenceMap = new Map<string, number>();
   private hostLastSeen = 0;
@@ -172,6 +183,34 @@ export class RoomChannel {
       this.bc = new BroadcastChannel(`uno-tongkrongan:${this.code}`);
       this.bc.onmessage = (ev: MessageEvent<WireMessage>) => this.handleMessage(ev.data);
     }
+    const supabase = getRealtimeClient();
+    if (!supabase) {
+      this.transportError = "Room online belum dikonfigurasi. Tambahkan URL dan anon key Supabase di environment Vercel.";
+    } else {
+      this.realtime = supabase
+        .channel(`uno-tongkrongan:${this.code}`, { config: { broadcast: { self: false } } })
+        .on("broadcast", { event: "room-message" }, ({ payload }) => this.handleMessage(payload as WireMessage))
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            this.realtimeReady = true;
+            this.transportError = null;
+            const persisted = readPersisted(this.code);
+            if (persisted?.room.hostPlayerId === this.selfId) {
+              this.sendMessage({ type: "state", payload: persisted });
+            } else if (persisted && this.pendingNickname) {
+              this.pendingJoinSent = true;
+              this.sendMessage({ type: "join", playerId: this.selfId, nickname: this.pendingNickname });
+            } else {
+              this.requestRoomSync();
+            }
+            this.emit();
+          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            this.realtimeReady = false;
+            this.transportError = "Koneksi realtime gagal. Periksa konfigurasi Supabase dan coba muat ulang.";
+            this.emit();
+          }
+        });
+    }
     this.presenceTimer = setInterval(() => this.announcePresence(), 3500);
     this.watchdogTimer = setInterval(() => this.checkWatchdog(), 2500);
     this.turnWatchTimer = setInterval(() => this.checkTurnTimeout(), 1000);
@@ -183,7 +222,7 @@ export class RoomChannel {
   private handleUnload = () => {
     const persisted = readPersisted(this.code);
     if (persisted && persisted.room.hostPlayerId === this.selfId) {
-      this.bc?.postMessage({ type: "host-bye", playerId: this.selfId } satisfies WireMessage);
+      this.sendMessage({ type: "host-bye", playerId: this.selfId });
     }
   };
 
@@ -230,9 +269,26 @@ export class RoomChannel {
     return code;
   }
 
-  join(nickname: string): { ok: true } | { ok: false; reason: string } {
+  join(nickname: string): { ok: true; pending?: boolean } | { ok: false; reason: string } {
     const persisted = readPersisted(this.code);
-    if (!persisted) return { ok: false, reason: "Room tidak ditemukan." };
+    if (!persisted) {
+      this.pendingNickname = nickname;
+      this.requestRoomSync();
+      return { ok: true, pending: true };
+    }
+    if (persisted.room.hostPlayerId !== this.selfId) {
+      this.pendingNickname = nickname;
+      this.pendingJoinSent = this.realtimeReady || this.bc !== null;
+      this.sendMessage({ type: "join", playerId: this.selfId, nickname });
+      if (this.requestTimer) clearTimeout(this.requestTimer);
+      this.requestTimer = setTimeout(() => {
+        if (!readPersisted(this.code)?.players.some((player) => player.id === this.selfId)) {
+          this.transportError = "Host tidak merespons. Pastikan host masih berada di room.";
+          this.emit();
+        }
+      }, ROOM_SYNC_TIMEOUT_MS);
+      return { ok: true, pending: true };
+    }
     const { room, players } = persisted;
     const existing = players.find((p) => p.id === this.selfId);
     if (existing) {
@@ -289,7 +345,7 @@ export class RoomChannel {
     const notices = this.noticeQueue;
     this.noticeQueue = [];
     if (!persisted) {
-      return { room: null, players: [], chat: [], game: null, legalCardIds: [], isHost: false, selfId: this.selfId, error: null, notices };
+      return { room: null, players: [], chat: [], game: null, legalCardIds: [], isHost: false, selfId: this.selfId, error: this.transportError, notices };
     }
     const isHost = persisted.room.hostPlayerId === this.selfId;
     let game: GamePublicState | null = null;
@@ -309,7 +365,7 @@ export class RoomChannel {
       legalCardIds: legal,
       isHost,
       selfId: this.selfId,
-      error: null,
+      error: this.transportError,
       notices,
     };
   }
@@ -319,7 +375,7 @@ export class RoomChannel {
   // ---------------------------------------------------------------------
 
   private announcePresence() {
-    this.bc?.postMessage({ type: "presence", playerId: this.selfId, nickname: "", ts: Date.now() } satisfies WireMessage);
+    this.sendMessage({ type: "presence", playerId: this.selfId, nickname: "", ts: Date.now() });
     const persisted = readPersisted(this.code);
     if (persisted?.room.hostPlayerId === this.selfId) {
       this.hostLastSeen = Date.now();
@@ -414,19 +470,91 @@ export class RoomChannel {
     }
     if (msg.type === "request-sync") {
       const persisted = readPersisted(this.code);
-      if (persisted?.room.hostPlayerId === this.selfId) this.persistAndBroadcast(persisted, null);
+      if (persisted?.room.hostPlayerId === this.selfId) this.sendMessage({ type: "state", payload: persisted });
+      return;
+    }
+    if (msg.type === "join") {
+      const persisted = readPersisted(this.code);
+      if (persisted?.room.hostPlayerId !== this.selfId) return;
+      const existing = persisted.players.find((player) => player.id === msg.playerId);
+      if (existing) {
+        existing.connectionStatus = "connected";
+        existing.lastSeen = Date.now();
+        this.persistAndBroadcast(persisted, null);
+        return;
+      }
+      if (persisted.room.status !== "waiting" && persisted.room.status !== "ready") {
+        this.sendMessage({ type: "join-error", playerId: msg.playerId, reason: "Permainan sudah dimulai. Kamu tidak bisa masuk ke room ini." });
+        return;
+      }
+      if (persisted.players.length >= persisted.room.settings.maxPlayers) {
+        this.sendMessage({ type: "join-error", playerId: msg.playerId, reason: "Room sudah penuh." });
+        return;
+      }
+      persisted.players.push({
+        id: msg.playerId,
+        nickname: msg.nickname,
+        isHost: false,
+        isReady: false,
+        isBot: false,
+        connectionStatus: "connected",
+        joinedAt: Date.now(),
+        lastSeen: Date.now(),
+      });
+      persisted.chat.push(systemMessage(persisted.room.id, `${msg.nickname} bergabung ke room.`));
+      this.persistAndBroadcast(persisted, null);
+      return;
+    }
+    if (msg.type === "join-error") {
+      if (msg.playerId !== this.selfId) return;
+      this.transportError = msg.reason;
+      this.pendingNickname = null;
+      this.pendingJoinSent = false;
+      if (this.requestTimer) clearTimeout(this.requestTimer);
+      this.emit();
       return;
     }
     if (msg.type === "state") {
+      const previous = readPersisted(this.code);
+      if (!previous || msg.payload.updatedAt >= previous.updatedAt) writePersisted(this.code, msg.payload);
+      const persisted = readPersisted(this.code);
+      if (persisted?.players.some((player) => player.id === this.selfId)) {
+        this.pendingNickname = null;
+        this.pendingJoinSent = false;
+        this.transportError = null;
+        if (this.requestTimer) clearTimeout(this.requestTimer);
+      } else if (persisted && this.pendingNickname && !this.pendingJoinSent) {
+        this.pendingJoinSent = true;
+        this.sendMessage({ type: "join", playerId: this.selfId, nickname: this.pendingNickname });
+      }
       this.emit();
       return;
     }
   }
 
+  private sendMessage(message: WireMessage) {
+    this.bc?.postMessage(message satisfies WireMessage);
+    if (this.realtimeReady) {
+      void this.realtime?.send({ type: "broadcast", event: "room-message", payload: message });
+    }
+  }
+
+  private requestRoomSync() {
+    if (!this.realtimeReady) return;
+    this.sendMessage({ type: "request-sync", playerId: this.selfId });
+    if (this.requestTimer) clearTimeout(this.requestTimer);
+    this.requestTimer = setTimeout(() => {
+      if (!readPersisted(this.code)?.players.some((player) => player.id === this.selfId)) {
+        this.transportError = "Room tidak ditemukan atau host sedang offline.";
+        this.emit();
+      }
+    }, ROOM_SYNC_TIMEOUT_MS);
+  }
+
   private persistAndBroadcast(state: PersistedState, _nonceIgnored: null) {
     state.updatedAt = Date.now();
     writePersisted(this.code, state);
-    this.bc?.postMessage({ type: "state", payload: state } satisfies WireMessage);
+    this.sendMessage({ type: "state", payload: state });
     this.emit();
   }
 
@@ -441,7 +569,7 @@ export class RoomChannel {
     } else {
       const nonce = randomId("nonce");
       this.processedNonces.add(nonce);
-      this.bc?.postMessage({ type: "action", action, nonce } satisfies WireMessage);
+      this.sendMessage({ type: "action", action, nonce });
     }
   }
 
@@ -715,9 +843,11 @@ export class RoomChannel {
     if (this.watchdogTimer) clearInterval(this.watchdogTimer);
     if (this.turnWatchTimer) clearInterval(this.turnWatchTimer);
     if (this.botTimer) clearTimeout(this.botTimer);
+    if (this.requestTimer) clearTimeout(this.requestTimer);
     window.removeEventListener("beforeunload", this.handleUnload);
     window.removeEventListener("storage", this.handleStorage);
     this.bc?.close();
+    if (this.realtime) void getRealtimeClient()?.removeChannel(this.realtime);
     this.listeners.clear();
   }
 }

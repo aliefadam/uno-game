@@ -7,7 +7,6 @@ import { TextField } from "@/components/ui/Controls";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
-import { roomCodeExists } from "@/lib/room-channel";
 import { getStoredNickname, setStoredNickname } from "@/lib/session";
 
 export function JoinRoomModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -30,11 +29,6 @@ export function JoinRoomModal({ open, onClose }: { open: boolean; onClose: () =>
     }
     const finalCode = normalized.startsWith("UNO-") ? normalized : `UNO-${normalized}`;
     setChecking(true);
-    if (!roomCodeExists(finalCode)) {
-      toast.show("Room tidak ditemukan.", "error");
-      setChecking(false);
-      return;
-    }
     setStoredNickname(trimmedName);
     router.push(`/room/${finalCode}`);
   };

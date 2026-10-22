@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/Controls";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
-import { roomCodeExists } from "@/lib/room-channel";
 import { getStoredNickname, setStoredNickname } from "@/lib/session";
 
 function CenteredCard({ children }: { children: React.ReactNode }) {
@@ -99,10 +98,7 @@ function StatusScreen({ icon, title, desc }: { icon: string; title: string; desc
 export function RoomApp({ code }: { code: string }) {
   const toast = useToast();
   const [nickname, setNickname] = useState<string | null>(null);
-  const [roomExists, setRoomExists] = useState<boolean | null>(null);
-
   useEffect(() => {
-    setRoomExists(roomCodeExists(code));
     const stored = getStoredNickname();
     if (stored) setNickname(stored);
   }, [code]);
@@ -116,8 +112,8 @@ export function RoomApp({ code }: { code: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot.notices.length]);
 
-  if (roomExists === false) {
-    return <StatusScreen icon="triangle-warning" title="Room Tidak Ditemukan" desc="Kode room tidak valid atau room sudah tidak aktif." />;
+  if (snapshot.error) {
+    return <StatusScreen icon="triangle-warning" title="Koneksi Room Bermasalah" desc={snapshot.error} />;
   }
 
   if (!nickname) {
@@ -132,6 +128,9 @@ export function RoomApp({ code }: { code: string }) {
   }
 
   if (!snapshot.room) {
+    if (snapshot.error) {
+      return <StatusScreen icon="triangle-warning" title="Tidak Bisa Terhubung ke Room" desc={snapshot.error} />;
+    }
     return <CenteredCard>Memuat room…</CenteredCard>;
   }
 
@@ -141,6 +140,9 @@ export function RoomApp({ code }: { code: string }) {
 
   const self = snapshot.players.find((p) => p.id === selfId);
   if (!self) {
+    if (snapshot.error) {
+      return <StatusScreen icon="triangle-warning" title="Tidak Bisa Bergabung" desc={snapshot.error} />;
+    }
     if (snapshot.room.status !== "waiting" && snapshot.room.status !== "ready") {
       return <StatusScreen icon="hourglass-end" title="Permainan Sudah Dimulai" desc="Kamu tidak bisa bergabung karena permainan sedang berlangsung." />;
     }
