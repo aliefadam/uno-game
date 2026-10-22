@@ -64,6 +64,7 @@ type PersistedState = {
   players: Player[];
   chat: ChatMessage[];
   engine: EngineState | null;
+  winsByPlayerId?: Record<string, number>;
   updatedAt: number;
 };
 
@@ -122,7 +123,18 @@ function readPersisted(code: string): PersistedState | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(storageKey(code));
-    return raw ? (JSON.parse(raw) as PersistedState) : null;
+    if (!raw) return null;
+    const persisted = JSON.parse(raw) as PersistedState;
+    persisted.winsByPlayerId ??= {};
+    for (const player of persisted.players) {
+      const historyWins = persisted.chat.filter(
+        (message) => message.type === "system" && message.content === `${player.nickname} memenangkan pertandingan!`,
+      ).length;
+      const wins = Math.max(persisted.winsByPlayerId[player.id] ?? 0, player.wins ?? 0, historyWins);
+      persisted.winsByPlayerId[player.id] = wins;
+      player.wins = wins;
+    }
+    return persisted;
   } catch {
     return null;
   }
@@ -256,6 +268,7 @@ export class RoomChannel {
       players: [host],
       chat: [systemMessage(room.id, `${nickname} membuat room ini.`)],
       engine: null,
+      winsByPlayerId: { [selfId]: 0 },
       updatedAt: Date.now(),
     };
     writePersisted(code, persisted);
@@ -535,6 +548,16 @@ export class RoomChannel {
     }, ROOM_SYNC_TIMEOUT_MS);
   }
 
+  private recordRoundWinner(persisted: PersistedState, previousWinnerId?: string, winnerId?: string) {
+    if (previousWinnerId || !winnerId) return;
+    const winner = persisted.players.find((player) => player.id === winnerId);
+    if (!winner) return;
+    persisted.winsByPlayerId ??= {};
+    const wins = Math.max(winner.wins ?? 0, persisted.winsByPlayerId[winnerId] ?? 0) + 1;
+    persisted.winsByPlayerId[winnerId] = wins;
+    winner.wins = wins;
+  }
+
   private persistAndBroadcast(state: PersistedState, _nonceIgnored: null) {
     state.updatedAt = Date.now();
     writePersisted(this.code, state);
@@ -660,12 +683,13 @@ export class RoomChannel {
           this.pushNotice(result.reason);
           return;
         }
+        const previousWinnerId = persisted.engine.winOrder[0];
         persisted.engine = result.state;
+        this.recordRoundWinner(persisted, previousWinnerId, persisted.engine.winOrder[0]);
         this.annotateEvents(persisted, players, result.events);
         if (persisted.engine.status === "finished") {
           room.status = "finished";
           const winner = players.find((p) => p.id === persisted.engine!.winnerId);
-          if (winner) winner.wins = (winner.wins ?? 0) + 1;
           persisted.chat.push(systemMessage(room.id, `${winner?.nickname ?? "Pemain"} memenangkan pertandingan!`));
         }
         break;
@@ -694,12 +718,13 @@ export class RoomChannel {
           this.pushNotice(result.reason);
           return;
         }
+        const previousWinnerId = persisted.engine.winOrder[0];
         persisted.engine = result.state;
+        this.recordRoundWinner(persisted, previousWinnerId, persisted.engine.winOrder[0]);
         this.annotateEvents(persisted, players, result.events);
         if (persisted.engine.status === "finished") {
           room.status = "finished";
           const winner = players.find((p) => p.id === persisted.engine!.winnerId);
-          if (winner) winner.wins = (winner.wins ?? 0) + 1;
           persisted.chat.push(systemMessage(room.id, `${winner?.nickname ?? "Pemain"} memenangkan pertandingan!`));
         }
         break;
@@ -777,6 +802,7 @@ export class RoomChannel {
     const persisted = readPersisted(this.code);
     if (!persisted || persisted.room.hostPlayerId !== this.selfId || !persisted.engine) return;
     let engine = persisted.engine;
+    const previousWinnerId = engine.winOrder[0];
     if (engine.status !== "playing" || engine.playerOrder[engine.currentIndex] !== botId) return;
     const houseRules = persisted.room.settings.houseRules;
 
@@ -814,10 +840,10 @@ export class RoomChannel {
     }
 
     persisted.engine = engine;
+    this.recordRoundWinner(persisted, previousWinnerId, engine.winOrder[0]);
     if (engine.status === "finished") {
       persisted.room.status = "finished";
       const winner = persisted.players.find((p) => p.id === engine.winnerId);
-      if (winner) winner.wins = (winner.wins ?? 0) + 1;
       persisted.chat.push(systemMessage(persisted.room.id, `${winner?.nickname ?? "Pemain"} memenangkan pertandingan!`));
     }
     this.persistAndBroadcast(persisted, null);
