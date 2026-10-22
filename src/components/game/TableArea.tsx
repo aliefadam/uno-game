@@ -16,7 +16,7 @@ export function OpponentsBar({
   handCounts: Record<string, number>;
 }) {
   return (
-    <div className="no-scrollbar flex gap-3 overflow-x-auto px-4 pb-1 pt-3 sm:justify-center sm:px-0">
+    <div className="no-scrollbar flex shrink-0 gap-3 overflow-x-auto px-4 pb-1 pt-3 sm:justify-center sm:px-0">
       <AnimatePresence initial={false}>
         {opponents.map((p) => {
           const count = handCounts[p.id] ?? 0;
@@ -30,7 +30,7 @@ export function OpponentsBar({
               exit={{ opacity: 0, scale: 0.8 }}
               className={cn(
                 "relative flex shrink-0 flex-col items-center gap-1.5 rounded-2xl border px-4 py-3 transition",
-                isTurn ? "border-[#ff4d6d]/60 bg-[#ff4d6d]/10 shadow-[0_0_0_3px_rgba(255,77,109,0.15)]" : "border-white/10 bg-white/[0.03]",
+                isTurn ? "border-[#ff4d6d]/80 bg-[#ff4d6d]/[0.14] shadow-[0_0_0_3px_rgba(255,77,109,0.18),0_0_24px_rgba(255,77,109,0.16)]" : "border-white/10 bg-white/[0.03]",
               )}
             >
               <div className="relative" data-player-avatar={p.id}>
@@ -55,6 +55,15 @@ export function OpponentsBar({
               <p className="whitespace-nowrap text-xs font-semibold text-white/75">
                 Sisa kartu: <span className="font-extrabold text-white">{count}</span>
               </p>
+              {isTurn && (
+                <motion.span
+                  initial={{ opacity: 0, y: 3 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="rounded-full border border-rose-300/40 bg-rose-500/25 px-2 py-0.5 text-[0.6rem] font-extrabold uppercase tracking-wide text-rose-100"
+                >
+                  Giliran sekarang
+                </motion.span>
+              )}
               {count === 1 && <Badge tone="warning">UNO!</Badge>}
             </motion.div>
           );
@@ -73,6 +82,7 @@ export function TableCenter({
   onDraw,
   lastAction,
   playHint,
+  showHintOnMobile = false,
 }: {
   topCard: Card | null;
   deckCount: number;
@@ -82,12 +92,15 @@ export function TableCenter({
   onDraw: () => void;
   lastAction: string | null;
   playHint: string;
+  showHintOnMobile?: boolean;
 }) {
   return (
     <div className="flex w-full min-w-0 flex-col items-center gap-3 px-2 py-4">
-      <p className="w-full max-w-[min(100%,42rem)] break-words rounded-xl border border-[#ff8a3d]/25 bg-[#ff8a3d]/[0.1] px-4 py-2.5 text-center text-xs font-semibold leading-relaxed text-white/85 sm:px-5 sm:text-sm">
-        {playHint}
-      </p>
+      {showHintOnMobile && (
+        <p className="w-full max-w-[min(100%,42rem)] break-words rounded-xl border border-[#ff8a3d]/25 bg-[#ff8a3d]/[0.1] px-4 py-2.5 text-center text-xs font-semibold leading-relaxed text-white/85 sm:px-5 sm:text-sm md:hidden">
+          {playHint}
+        </p>
+      )}
 
       <div className="flex items-center gap-5 sm:gap-8">
         <button
@@ -137,7 +150,7 @@ export function TableCenter({
                 transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
                 className="absolute inset-0"
               >
-                <PlayingCard card={topCard} className="h-full w-full" style={{ height: "100%", width: "100%", aspectRatio: "auto" }} />
+                <PlayingCard card={topCard} compact className="h-full w-full" style={{ height: "100%", width: "100%", aspectRatio: "auto" }} />
               </motion.div>
             )}
           </AnimatePresence>

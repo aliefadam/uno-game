@@ -165,7 +165,14 @@ export function legalCardIds(hand: Card[], state: EngineState, houseRules: House
 
 function advance(state: EngineState, steps = 1) {
   const n = state.playerOrder.length;
-  state.currentIndex = (((state.currentIndex + steps * state.direction) % n) + n) % n;
+  if (n === 0) return;
+  for (let step = 0; step < steps; step++) {
+    let attempts = 0;
+    do {
+      state.currentIndex = (((state.currentIndex + state.direction) % n) + n) % n;
+      attempts += 1;
+    } while ((state.hands[state.playerOrder[state.currentIndex]]?.length ?? 0) === 0 && attempts < n);
+  }
 }
 
 function nextAlivePlayer(state: EngineState) {
@@ -190,10 +197,13 @@ function pushEvent(state: EngineState, event: Omit<LastActionInfo, "seq" | "at">
 
 function finishIfWinner(state: EngineState, playerId: string, events: LastActionInfo[]) {
   if (state.hands[playerId].length === 0) {
-    state.status = "finished";
-    state.winnerId = playerId;
     if (!state.winOrder.includes(playerId)) state.winOrder.push(playerId);
-    events.push(pushEvent(state, { type: "win", actorId: playerId, message: "win" }));
+    const remainingPlayers = state.playerOrder.filter((id) => (state.hands[id]?.length ?? 0) > 0);
+    if (remainingPlayers.length <= 1) {
+      state.status = "finished";
+      state.winnerId = state.winOrder[0] ?? playerId;
+      events.push(pushEvent(state, { type: "win", actorId: state.winnerId, message: "win" }));
+    }
   }
 }
 
@@ -251,10 +261,11 @@ export function playCard(
     events.push(pushEvent(state, { type: "uno", actorId: playerId }));
   }
 
-  // Win check before resolving action effects (classic UNO: emptying hand wins immediately).
+  // Empty-handed players leave the turn order, while the round continues until
+  // only one player still has cards. First out remains the round winner.
   if (state.hands[playerId].length === 0) {
     finishIfWinner(state, playerId, events);
-    return { ok: true, state, events };
+    if (state.status === "finished") return { ok: true, state, events };
   }
 
   switch (card.value) {
@@ -268,7 +279,7 @@ export function playCard(
     case "reverse": {
       state.direction = state.direction === 1 ? -1 : 1;
       events.push(pushEvent(state, { type: "reverse", actorId: playerId }));
-      if (state.playerOrder.length === 2) {
+      if (state.playerOrder.filter((id) => (state.hands[id]?.length ?? 0) > 0).length === 2) {
         // Acts like skip in 2-player games.
         nextAlivePlayer(state);
       }
@@ -424,6 +435,9 @@ export function jumpIn(
   const events = [pushEvent(state, { type: "jump-in", actorId: playerId, card })];
   if (state.hands[playerId].length === 0) {
     finishIfWinner(state, playerId, events);
+    if (state.status === "finished") return { ok: true, state, events };
+    nextAlivePlayer(state);
+    state.turnStartedAt = Date.now();
     return { ok: true, state, events };
   }
   if (state.hands[playerId].length === 1) {

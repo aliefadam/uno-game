@@ -103,7 +103,7 @@ export function RoomApp({ code }: { code: string }) {
     if (stored) setNickname(stored);
   }, [code]);
 
-  const { snapshot, dispatch, selfId } = useRoom(code, nickname);
+  const { snapshot, dispatch, setTyping, selfId } = useRoom(code, nickname);
 
   useEffect(() => {
     if (snapshot.notices.length > 0) {
@@ -164,6 +164,8 @@ export function RoomApp({ code }: { code: string }) {
           game={snapshot.game}
           legalCardIds={snapshot.legalCardIds}
           chat={snapshot.chat}
+          typingPlayers={snapshot.typingPlayers}
+          onTyping={setTyping}
           selfId={selfId}
           isHost={snapshot.isHost}
           dispatch={dispatch}
@@ -173,6 +175,8 @@ export function RoomApp({ code }: { code: string }) {
           room={snapshot.room}
           players={snapshot.players}
           chat={snapshot.chat}
+          typingPlayers={snapshot.typingPlayers}
+          onTyping={setTyping}
           selfId={selfId}
           isHost={snapshot.isHost}
           dispatch={dispatch}

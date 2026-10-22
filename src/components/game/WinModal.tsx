@@ -46,6 +46,7 @@ export function WinModal({
   winner,
   players,
   handCounts,
+  winOrder,
   isHost,
   isWinnerSelf,
   onRematch,
@@ -56,6 +57,7 @@ export function WinModal({
   winner: Player | undefined;
   players: Player[];
   handCounts: Record<string, number>;
+  winOrder: string[];
   isHost: boolean;
   isWinnerSelf: boolean;
   onRematch: () => void;
@@ -74,9 +76,15 @@ export function WinModal({
 
   if (!open || typeof document === "undefined") return null;
 
-  const ranking = players
-    .slice()
-    .sort((a, b) => (handCounts[a.id] ?? 0) - (handCounts[b.id] ?? 0));
+  const finishOrder = new Map(winOrder.map((id, index) => [id, index]));
+  const ranking = players.slice().sort((a, b) => {
+    const aFinished = finishOrder.get(a.id);
+    const bFinished = finishOrder.get(b.id);
+    if (aFinished !== undefined && bFinished !== undefined) return aFinished - bFinished;
+    if (aFinished !== undefined) return -1;
+    if (bFinished !== undefined) return 1;
+    return (handCounts[a.id] ?? 0) - (handCounts[b.id] ?? 0);
+  });
 
   return createPortal(
     <motion.div
@@ -113,7 +121,10 @@ export function WinModal({
                 <Avatar name={p.nickname} size={24} />
                 {p.nickname}
               </span>
-              <span className="text-xs font-semibold text-white/50">{handCounts[p.id] ?? 0} kartu</span>
+              <span className="text-right text-xs font-semibold text-white/50">
+                <span className="block text-amber-200">{p.wins ?? 0} menang</span>
+                <span>{handCounts[p.id] ?? 0} kartu tersisa</span>
+              </span>
             </div>
           ))}
         </div>

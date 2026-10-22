@@ -12,8 +12,8 @@
 //    menyiarkan state terbaru & menerima aksi, menggantikan Socket.IO.
 //  - Tab yang berperan sebagai HOST menjalankan game engine (otoritatif):
 //    memvalidasi aksi, menjalankan bot, menjalankan timer giliran.
-//  - Jika host pergi, tab lain yang tersambung dapat mengambil alih (host
-//    migration) menggunakan snapshot terakhir dari localStorage.
+//  - Identitas host tetap melekat pada pembuat room; heartbeat yang terlambat
+//    tidak memindahkan host secara otomatis.
 // =========================================================================
 import type {
   ChatMessage,
@@ -48,7 +48,7 @@ export const DEFAULT_HOUSE_RULES: HouseRules = {
   jumpIn: true,
   sevenSwap: false,
   zeroRotation: false,
-  drawUntilPlayable: true,
+  drawUntilPlayable: false,
 };
 
 export const DEFAULT_SETTINGS: RoomSettings = {
@@ -71,10 +71,10 @@ type WireMessage =
   | { type: "action"; action: ClientAction; nonce: string }
   | { type: "state"; payload: PersistedState }
   | { type: "presence"; playerId: string; nickname: string; ts: number }
-  | { type: "host-bye"; playerId: string }
   | { type: "request-sync"; playerId: string }
   | { type: "join"; playerId: string; nickname: string }
-  | { type: "join-error"; playerId: string; reason: string };
+  | { type: "join-error"; playerId: string; reason: string }
+  | { type: "typing"; playerId: string; typing: boolean };
 
 export type RoomSnapshot = {
   room: RoomRecord | null;
@@ -86,12 +86,12 @@ export type RoomSnapshot = {
   selfId: string;
   error: string | null;
   notices: string[];
+  typingPlayers: string[];
 };
 
 const STORAGE_PREFIX = "uno-tongkrongan:room:";
 const ROOMS_INDEX_KEY = "uno-tongkrongan:rooms-index";
 const PRESENCE_TIMEOUT_MS = 9000;
-const HOST_TIMEOUT_MS = 11000;
 const BOT_THINK_MS = 950;
 const ROOM_SYNC_TIMEOUT_MS = 8000;
 
@@ -167,7 +167,6 @@ export class RoomChannel {
   private transportError: string | null = null;
   private listeners = new Set<(snap: RoomSnapshot) => void>();
   private presenceMap = new Map<string, number>();
-  private hostLastSeen = 0;
   private presenceTimer: ReturnType<typeof setInterval> | null = null;
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
   private botTimer: ReturnType<typeof setTimeout> | null = null;
@@ -175,6 +174,8 @@ export class RoomChannel {
   private destroyed = false;
   private processedNonces = new Set<string>();
   private noticeQueue: string[] = [];
+  private typingPlayers = new Set<string>();
+  private typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(code: string, selfId: string) {
     this.code = code.toUpperCase();
@@ -214,17 +215,9 @@ export class RoomChannel {
     this.presenceTimer = setInterval(() => this.announcePresence(), 3500);
     this.watchdogTimer = setInterval(() => this.checkWatchdog(), 2500);
     this.turnWatchTimer = setInterval(() => this.checkTurnTimeout(), 1000);
-    window.addEventListener("beforeunload", this.handleUnload);
     window.addEventListener("storage", this.handleStorage);
     this.announcePresence();
   }
-
-  private handleUnload = () => {
-    const persisted = readPersisted(this.code);
-    if (persisted && persisted.room.hostPlayerId === this.selfId) {
-      this.sendMessage({ type: "host-bye", playerId: this.selfId });
-    }
-  };
 
   private handleStorage = (ev: StorageEvent) => {
     if (ev.key === storageKey(this.code)) this.emit();
@@ -345,7 +338,7 @@ export class RoomChannel {
     const notices = this.noticeQueue;
     this.noticeQueue = [];
     if (!persisted) {
-      return { room: null, players: [], chat: [], game: null, legalCardIds: [], isHost: false, selfId: this.selfId, error: this.transportError, notices };
+      return { room: null, players: [], chat: [], game: null, legalCardIds: [], isHost: false, selfId: this.selfId, error: this.transportError, notices, typingPlayers: [...this.typingPlayers] };
     }
     const isHost = persisted.room.hostPlayerId === this.selfId;
     let game: GamePublicState | null = null;
@@ -367,7 +360,12 @@ export class RoomChannel {
       selfId: this.selfId,
       error: this.transportError,
       notices,
+      typingPlayers: [...this.typingPlayers],
     };
+  }
+
+  setTyping(typing: boolean) {
+    this.sendMessage({ type: "typing", playerId: this.selfId, typing });
   }
 
   // ---------------------------------------------------------------------
@@ -378,7 +376,6 @@ export class RoomChannel {
     this.sendMessage({ type: "presence", playerId: this.selfId, nickname: "", ts: Date.now() });
     const persisted = readPersisted(this.code);
     if (persisted?.room.hostPlayerId === this.selfId) {
-      this.hostLastSeen = Date.now();
       const me = persisted.players.find((p) => p.id === this.selfId);
       if (me && me.connectionStatus !== "connected") {
         me.connectionStatus = "connected";
@@ -403,21 +400,7 @@ export class RoomChannel {
     // Only the host tab is allowed to persist connection-status changes —
     // every other tab is a read-only observer of the canonical state so we
     // never end up with two tabs racing to write localStorage.
-    if (!isHostTab) {
-      const hostGap = now - this.hostLastSeen;
-      if (this.hostLastSeen === 0) this.hostLastSeen = now;
-      if (hostGap > HOST_TIMEOUT_MS) {
-        const candidates = persisted.players
-          .filter((p) => !p.isBot && p.id !== persisted.room.hostPlayerId && p.connectionStatus !== "disconnected")
-          .sort((a, b) => a.joinedAt - b.joinedAt);
-        if (candidates[0]?.id === this.selfId) {
-          this.promoteSelfToHost(persisted);
-        }
-      }
-      return;
-    }
-
-    this.hostLastSeen = now;
+    if (!isHostTab) return;
 
     // Update connection status of players based on their presence heartbeat.
     for (const p of persisted.players) {
@@ -436,27 +419,28 @@ export class RoomChannel {
     if (dirty) this.persistAndBroadcast(persisted, null);
   }
 
-  private promoteSelfToHost(persisted: PersistedState) {
-    persisted.room.hostPlayerId = this.selfId;
-    for (const p of persisted.players) p.isHost = p.id === this.selfId;
-    persisted.chat.push(systemMessage(persisted.room.id, `Host berpindah ke ${persisted.players.find((p) => p.id === this.selfId)?.nickname ?? "pemain lain"}.`));
-    this.noticeQueue.push("Kamu menjadi host baru di room ini.");
-    this.persistAndBroadcast(persisted, null);
-    this.scheduleBotTurnIfNeeded(persisted);
-  }
-
   private handleMessage(msg: WireMessage) {
     if (!msg) return;
-    if (msg.type === "presence") {
-      this.presenceMap.set(msg.playerId, msg.ts);
-      const persisted = readPersisted(this.code);
-      if (persisted?.room.hostPlayerId === msg.playerId) this.hostLastSeen = Date.now();
+    if (msg.type === "typing") {
+      if (msg.playerId === this.selfId) return;
+      const previousTimer = this.typingTimers.get(msg.playerId);
+      if (previousTimer) clearTimeout(previousTimer);
+      if (msg.typing) {
+        this.typingPlayers.add(msg.playerId);
+        this.typingTimers.set(msg.playerId, setTimeout(() => {
+          this.typingPlayers.delete(msg.playerId);
+          this.typingTimers.delete(msg.playerId);
+          this.emit();
+        }, 4500));
+      } else {
+        this.typingPlayers.delete(msg.playerId);
+        this.typingTimers.delete(msg.playerId);
+      }
+      this.emit();
       return;
     }
-    if (msg.type === "host-bye") {
-      this.hostLastSeen = 0;
-      // Try to react immediately instead of waiting for the full timeout.
-      setTimeout(() => this.checkWatchdog(), 150);
+    if (msg.type === "presence") {
+      this.presenceMap.set(msg.playerId, msg.ts);
       return;
     }
     if (msg.type === "action") {
@@ -681,6 +665,7 @@ export class RoomChannel {
         if (persisted.engine.status === "finished") {
           room.status = "finished";
           const winner = players.find((p) => p.id === persisted.engine!.winnerId);
+          if (winner) winner.wins = (winner.wins ?? 0) + 1;
           persisted.chat.push(systemMessage(room.id, `${winner?.nickname ?? "Pemain"} memenangkan pertandingan!`));
         }
         break;
@@ -714,6 +699,7 @@ export class RoomChannel {
         if (persisted.engine.status === "finished") {
           room.status = "finished";
           const winner = players.find((p) => p.id === persisted.engine!.winnerId);
+          if (winner) winner.wins = (winner.wins ?? 0) + 1;
           persisted.chat.push(systemMessage(room.id, `${winner?.nickname ?? "Pemain"} memenangkan pertandingan!`));
         }
         break;
@@ -830,8 +816,9 @@ export class RoomChannel {
     persisted.engine = engine;
     if (engine.status === "finished") {
       persisted.room.status = "finished";
-      const bot = persisted.players.find((p) => p.id === botId);
-      persisted.chat.push(systemMessage(persisted.room.id, `${bot?.nickname ?? "Bot"} memenangkan pertandingan!`));
+      const winner = persisted.players.find((p) => p.id === engine.winnerId);
+      if (winner) winner.wins = (winner.wins ?? 0) + 1;
+      persisted.chat.push(systemMessage(persisted.room.id, `${winner?.nickname ?? "Pemain"} memenangkan pertandingan!`));
     }
     this.persistAndBroadcast(persisted, null);
     this.scheduleBotTurnIfNeeded(persisted);
@@ -844,7 +831,8 @@ export class RoomChannel {
     if (this.turnWatchTimer) clearInterval(this.turnWatchTimer);
     if (this.botTimer) clearTimeout(this.botTimer);
     if (this.requestTimer) clearTimeout(this.requestTimer);
-    window.removeEventListener("beforeunload", this.handleUnload);
+    this.typingTimers.forEach((timer) => clearTimeout(timer));
+    this.typingTimers.clear();
     window.removeEventListener("storage", this.handleStorage);
     this.bc?.close();
     if (this.realtime) void getRealtimeClient()?.removeChannel(this.realtime);

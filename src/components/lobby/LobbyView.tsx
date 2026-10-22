@@ -9,6 +9,7 @@ import { Avatar, Badge, NumberStepper, SegmentedControl, Toggle } from "@/compon
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useToast } from "@/components/ui/Toast";
 import { sfx } from "@/lib/sound";
+import { useUnreadChatCount } from "@/hooks/useUnreadChatCount";
 import type { ChatMessage, ClientAction, HouseRules, Player, RoomRecord, RoomSettings } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -52,6 +53,7 @@ function PlayerCard({ player, isSelf }: { player: Player; isSelf: boolean }) {
           {player.isHost && <Badge tone="host">Host</Badge>}
           {player.isBot && <Badge>Bot</Badge>}
           {player.connectionStatus === "reconnecting" && <Badge tone="warning">Reconnecting</Badge>}
+          <span className="flex items-center gap-1 text-[0.65rem] font-semibold text-amber-200/80"><Icon name="trophy" solid size={11} />{player.wins ?? 0} menang</span>
         </div>
       </div>
       <Badge tone={player.isReady ? "success" : "default"}>{player.isReady ? "Ready" : "Belum"}</Badge>
@@ -63,6 +65,8 @@ export function LobbyView({
   room,
   players,
   chat,
+  typingPlayers,
+  onTyping,
   selfId,
   isHost,
   dispatch,
@@ -70,6 +74,8 @@ export function LobbyView({
   room: RoomRecord;
   players: Player[];
   chat: ChatMessage[];
+  typingPlayers: string[];
+  onTyping: (typing: boolean) => void;
   selfId: string;
   isHost: boolean;
   dispatch: (action: ClientAction) => void;
@@ -77,7 +83,9 @@ export function LobbyView({
   const router = useRouter();
   const toast = useToast();
   const [chatOpen, setChatOpen] = useState(false);
+  const { unreadCount, markRead } = useUnreadChatCount(chat, selfId, chatOpen);
   const self = players.find((p) => p.id === selfId);
+  const typingNames = players.filter((player) => typingPlayers.includes(player.id) && !player.isBot).map((player) => player.nickname);
   const settings = room.settings;
 
   const connectedCount = players.filter((p) => p.connectionStatus !== "disconnected").length;
@@ -262,15 +270,23 @@ export function LobbyView({
       </div>
 
       <div className="hidden h-[calc(100dvh-7rem)] w-80 shrink-0 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] lg:sticky lg:top-20 lg:flex">
-        <ChatPanel messages={chat} selfId={selfId} disabled={!settings.chatEnabled} onSend={(content) => dispatch({ kind: "chat:send", playerId: selfId, content })} />
+        <ChatPanel messages={chat} selfId={selfId} disabled={!settings.chatEnabled} typingNames={typingNames} onTyping={onTyping} onSend={(content) => dispatch({ kind: "chat:send", playerId: selfId, content })} />
       </div>
 
       <button
-        onClick={() => setChatOpen(true)}
+        onClick={() => {
+          markRead();
+          setChatOpen(true);
+        }}
         className="fixed bottom-5 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-[#ff4d6d] to-[#ff8a3d] text-white shadow-[0_12px_30px_-8px_rgba(255,77,109,0.7)] lg:hidden"
-        aria-label="Buka chat"
+        aria-label={unreadCount > 0 ? `Buka chat, ${unreadCount} pesan baru` : "Buka chat"}
       >
         <Icon name="comment-dots" size={20} />
+        {unreadCount > 0 && (
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#111321] bg-rose-500 px-1 text-[0.6rem] font-extrabold leading-none text-white shadow-lg">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
       </button>
 
       <AnimatePresence>
@@ -290,7 +306,7 @@ export function LobbyView({
               className="relative flex h-[min(75dvh,42rem)] w-full flex-col overflow-hidden rounded-t-3xl border-t border-white/10 bg-[#13152a]"
             >
               <div className="mx-auto mt-2.5 h-1.5 w-12 rounded-full bg-white/20" />
-              <ChatPanel messages={chat} selfId={selfId} disabled={!settings.chatEnabled} onSend={(content) => dispatch({ kind: "chat:send", playerId: selfId, content })} className="flex-1" />
+              <ChatPanel messages={chat} selfId={selfId} disabled={!settings.chatEnabled} typingNames={typingNames} onTyping={onTyping} onSend={(content) => dispatch({ kind: "chat:send", playerId: selfId, content })} className="flex-1" />
             </motion.div>
           </motion.div>
         )}

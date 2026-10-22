@@ -47,6 +47,7 @@ export type RoomSettings = {
 export type Player = {
   id: string;
   nickname: string;
+  wins?: number;
   isHost: boolean;
   isReady: boolean;
   isBot: boolean;

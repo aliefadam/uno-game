@@ -16,6 +16,7 @@ import { PlayingCard } from "./PlayingCard";
 import { ColorPickerModal } from "./ColorPickerModal";
 import { WinModal } from "./WinModal";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
+import { useUnreadChatCount } from "@/hooks/useUnreadChatCount";
 import { sfx } from "@/lib/sound";
 import { cardLabel } from "@/lib/uno-engine";
 import { cn } from "@/lib/utils";
@@ -65,6 +66,8 @@ export function GameView({
   game,
   legalCardIds,
   chat,
+  typingPlayers,
+  onTyping,
   selfId,
   isHost,
   dispatch,
@@ -74,6 +77,8 @@ export function GameView({
   game: GamePublicState;
   legalCardIds: string[];
   chat: ChatMessage[];
+  typingPlayers: string[];
+  onTyping: (typing: boolean) => void;
   selfId: string;
   isHost: boolean;
   dispatch: (action: ClientAction) => void;
@@ -82,6 +87,8 @@ export function GameView({
   const toast = useToast();
   const reducedMotion = useReducedMotion();
   const [chatOpen, setChatOpen] = useState(false);
+  const { unreadCount, markRead } = useUnreadChatCount(chat, selfId, chatOpen);
+  const typingNames = players.filter((player) => typingPlayers.includes(player.id) && !player.isBot).map((player) => player.nickname);
   const [pendingWildCard, setPendingWildCard] = useState<Card | null>(null);
   const [unoNotice, setUnoNotice] = useState<string | null>(null);
   const [pendingMatchCard, setPendingMatchCard] = useState<Card | null>(null);
@@ -114,16 +121,16 @@ export function GameView({
   const isMyTurn = game.currentPlayerId === selfId;
   const currentPlayer = players.find((p) => p.id === game.currentPlayerId);
   const playHint = !isMyTurn
-    ? `Warna aktif: ${COLOR_NAME[game.activeColor]}. Menunggu giliran ${currentPlayer?.nickname ?? "pemain"}.`
+    ? `Giliran ${currentPlayer?.nickname ?? "pemain"}.`
     : game.drawnCardId
-      ? "Kartu yang baru kamu ambil cocok dan bisa langsung dimainkan. Jika dilewati, giliran berlanjut."
+      ? "Kartu cocok. Mainkan atau lewati."
     : game.pendingDraw > 0
       ? room.settings.houseRules.crossStacking && legalCardIds.length > 0
-        ? `Balas +${game.pendingDraw} dengan kartu +2 atau +4 yang menyala, atau ambil ${game.pendingDraw} kartu.`
+        ? `Tumpuk +${game.pendingDraw} atau ambil kartu.`
         : `Ambil ${game.pendingDraw} kartu penalti.`
       : !room.settings.houseRules.drawUntilPlayable && legalCardIds.length === 0
-        ? "Tidak ada kartu yang cocok. Ambil 1 kartu; jika cocok, mainkan sekarang. Jika tidak, giliran berlanjut."
-      : `Warna aktif ${COLOR_NAME[game.activeColor]}${game.topCard && game.topCard.value !== "wild" && game.topCard.value !== "wild4" ? ` · cocokkan ${cardMatchName(game.topCard.value)}` : ""}. Mainkan kartu yang menyala atau Wild, atau ambil kartu dari tumpukan.`;
+        ? "Tak ada kartu cocok. Ambil 1 kartu."
+      : `Cocokkan ${game.topCard && game.topCard.value !== "wild" && game.topCard.value !== "wild4" ? cardMatchName(game.topCard.value) : COLOR_NAME[game.activeColor]}, atau ambil kartu.`;
 
   useEffect(() => {
     if (isMyTurn && prevTurnRef.id !== selfId) sfx.turn();
@@ -292,12 +299,12 @@ export function GameView({
             <span className="rounded-lg bg-white/5 px-2.5 py-1 text-xs font-bold tracking-wide text-white/70">{room.code}</span>
             <span
               className={cn(
-                "hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold sm:flex",
-                isMyTurn ? "bg-[#ff4d6d]/15 text-[#ff8a9a]" : "bg-white/5 text-white/45",
+                "flex items-center gap-1.5 rounded-full border px-2 py-1 text-[0.65rem] font-bold sm:px-2.5 sm:text-xs",
+                isMyTurn ? "border-rose-300/30 bg-[#ff4d6d]/20 text-rose-100" : "border-white/10 bg-white/5 text-white/65",
               )}
             >
               <Icon name="hourglass-end" size={12} />
-              {isMyTurn ? "Giliranmu!" : `Giliran ${currentPlayer?.nickname ?? "?"}`}
+              {isMyTurn ? "Giliranmu!" : `Giliran: ${currentPlayer?.nickname ?? "?"}`}
             </span>
           </div>
           <TurnTimerBar deadline={game.turnDeadline} durationSeconds={game.turnDurationSeconds} isMyTurn={isMyTurn} />
@@ -314,8 +321,35 @@ export function GameView({
       </div>
 
       <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 gap-4 overflow-hidden px-2 pb-2 sm:px-6 lg:px-8">
+        <aside className="hidden w-36 shrink-0 flex-col gap-3 pt-5 md:flex lg:w-44" aria-label="Info permainan">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+            <p className="text-[0.62rem] font-bold uppercase tracking-[0.14em] text-white/40">Arah permainan</p>
+            <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-white/85">
+              <motion.span animate={{ rotate: game.direction === 1 ? 0 : 180 }} transition={{ duration: 0.3 }}>
+                <Icon name="arrow-right" size={15} />
+              </motion.span>
+              <span className="capitalize">{game.direction === 1 ? "Searah" : "Berlawanan"}</span>
+              <span
+                className={cn(
+                  "ml-auto h-3 w-3 shrink-0 rounded-full ring-2 ring-white/25",
+                  game.activeColor === "red" && "bg-[#ff4d4d]",
+                  game.activeColor === "blue" && "bg-[#3fa8ff]",
+                  game.activeColor === "green" && "bg-[#4ad66d]",
+                  game.activeColor === "yellow" && "bg-[#ffd24a]",
+                  game.activeColor === "wild" && "bg-gradient-to-br from-[#ff4d4d] via-[#ffd24a] to-[#3fa8ff]",
+                )}
+                aria-label={`Warna aktif ${COLOR_NAME[game.activeColor]}`}
+              />
+            </div>
+            <p className="mt-1 text-xs text-white/50">Warna {COLOR_NAME[game.activeColor]}</p>
+          </div>
+          <div className="rounded-2xl border border-[#ff8a3d]/20 bg-[#ff8a3d]/[0.08] p-3 text-xs font-medium leading-relaxed text-white/80">
+            <span className="mb-1 block text-[0.62rem] font-bold uppercase tracking-[0.14em] text-amber-200/70">Petunjuk</span>
+            {playHint}
+          </div>
+        </aside>
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="absolute left-3 top-3 z-10 flex items-center gap-2 text-xs font-semibold text-white/65 sm:left-4 sm:top-4">
+          <div className="absolute left-3 top-3 z-10 flex items-center gap-2 text-xs font-semibold text-white/65 sm:left-4 sm:top-4 md:hidden">
             <motion.span animate={{ rotate: game.direction === 1 ? 0 : 180 }} transition={{ duration: 0.3 }}>
               <Icon name="arrow-right" size={14} />
             </motion.span>
@@ -347,6 +381,7 @@ export function GameView({
               onDraw={handleDraw}
               lastAction={lastActionLabel}
               playHint={playHint}
+              showHintOnMobile
             />
           </div>
 
@@ -355,6 +390,11 @@ export function GameView({
               <div className="flex items-center gap-2">
                 <Avatar name={me?.nickname ?? "?"} size={28} />
                 <span className="text-sm font-bold text-white/80">{me?.nickname}</span>
+                {isMyTurn && (
+                  <span className="rounded-full border border-emerald-300/30 bg-emerald-400/15 px-2 py-1 text-[0.6rem] font-extrabold uppercase tracking-wide text-emerald-200">
+                    Giliranmu
+                  </span>
+                )}
               </div>
               {showPassButton && (
                 <button
@@ -371,16 +411,24 @@ export function GameView({
         </div>
 
         <div className="hidden min-h-0 w-72 shrink-0 rounded-3xl border border-white/10 bg-white/[0.03] lg:flex xl:w-80">
-          <ChatPanel messages={chat} selfId={selfId} disabled={!room.settings.chatEnabled} onSend={(content) => dispatch({ kind: "chat:send", playerId: selfId, content })} />
+          <ChatPanel messages={chat} selfId={selfId} disabled={!room.settings.chatEnabled} typingNames={typingNames} onTyping={onTyping} onSend={(content) => dispatch({ kind: "chat:send", playerId: selfId, content })} />
         </div>
       </div>
 
       <button
-        onClick={() => setChatOpen(true)}
+        onClick={() => {
+          markRead();
+          setChatOpen(true);
+        }}
         className="fixed bottom-5 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-[#ff4d6d] to-[#ff8a3d] text-white shadow-[0_12px_30px_-8px_rgba(255,77,109,0.7)] lg:hidden"
-        aria-label="Buka chat"
+        aria-label={unreadCount > 0 ? `Buka chat, ${unreadCount} pesan baru` : "Buka chat"}
       >
         <Icon name="comment-dots" size={18} />
+        {unreadCount > 0 && (
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#111321] bg-rose-500 px-1 text-[0.6rem] font-extrabold leading-none text-white shadow-lg">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
       </button>
 
       <AnimatePresence>
@@ -395,7 +443,7 @@ export function GameView({
               className="relative flex h-[min(70dvh,42rem)] w-full flex-col overflow-hidden rounded-t-3xl border-t border-white/10 bg-[#13152a]"
             >
               <div className="mx-auto mt-2.5 h-1.5 w-12 rounded-full bg-white/20" />
-              <ChatPanel messages={chat} selfId={selfId} disabled={!room.settings.chatEnabled} onSend={(content) => dispatch({ kind: "chat:send", playerId: selfId, content })} className="flex-1" />
+              <ChatPanel messages={chat} selfId={selfId} disabled={!room.settings.chatEnabled} typingNames={typingNames} onTyping={onTyping} onSend={(content) => dispatch({ kind: "chat:send", playerId: selfId, content })} className="flex-1" />
             </motion.div>
           </motion.div>
         )}
@@ -519,6 +567,7 @@ export function GameView({
         winner={winner}
         players={players}
         handCounts={game.handCounts}
+        winOrder={game.winOrder}
         isHost={isHost}
         isWinnerSelf={winner?.id === selfId}
         reducedMotion={reducedMotion}

@@ -13,16 +13,49 @@ export function ChatPanel({
   onSend,
   disabled,
   className,
+  typingNames = [],
+  onTyping,
 }: {
   messages: ChatMessage[];
   selfId: string;
   onSend: (content: string) => void;
   disabled?: boolean;
   className?: string;
+  typingNames?: string[];
+  onTyping?: (typing: boolean) => void;
 }) {
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastCount = useRef(0);
+  const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTypingSignal = useRef(0);
+
+  useEffect(() => () => {
+    if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    onTyping?.(false);
+  }, [onTyping]);
+
+  const updateDraft = (value: string) => {
+    setDraft(value);
+    if (!value.trim() || disabled) {
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+      typingTimeout.current = null;
+      onTyping?.(false);
+      lastTypingSignal.current = 0;
+      return;
+    }
+    const now = Date.now();
+    if (now - lastTypingSignal.current > 1800) {
+      onTyping?.(true);
+      lastTypingSignal.current = now;
+    }
+    if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    typingTimeout.current = setTimeout(() => {
+      onTyping?.(false);
+      lastTypingSignal.current = 0;
+      typingTimeout.current = null;
+    }, 1400);
+  };
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -41,6 +74,10 @@ export function ChatPanel({
   const submit = () => {
     const content = draft.trim();
     if (!content || disabled) return;
+    if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    typingTimeout.current = null;
+    onTyping?.(false);
+    lastTypingSignal.current = 0;
     onSend(content);
     setDraft("");
   };
@@ -84,11 +121,34 @@ export function ChatPanel({
         </AnimatePresence>
         {messages.length === 0 && <p className="mt-6 text-center text-xs text-white/30">Belum ada obrolan. Sapa teman tongkronganmu!</p>}
       </div>
+      <AnimatePresence>
+        {typingNames.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="flex shrink-0 items-center gap-2 overflow-hidden px-4 py-2 text-xs text-white/65"
+            aria-live="polite"
+          >
+            <span className="flex items-center gap-0.5" aria-hidden="true">
+              {[0, 1, 2].map((dot) => (
+                <motion.span
+                  key={dot}
+                  className="h-1 w-1 rounded-full bg-[#ff8a6a]"
+                  animate={{ y: [0, -3, 0], opacity: [0.45, 1, 0.45] }}
+                  transition={{ duration: 0.8, repeat: Infinity, delay: dot * 0.15 }}
+                />
+              ))}
+            </span>
+            <span>{typingNames.length === 1 ? `${typingNames[0]} sedang mengetik` : `${typingNames.join(", ")} sedang mengetik`}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="flex shrink-0 items-center gap-2 border-t border-white/10 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <input
           value={draft}
           disabled={disabled}
-          onChange={(e) => setDraft(e.target.value.slice(0, 300))}
+          onChange={(e) => updateDraft(e.target.value.slice(0, 300))}
           onKeyDown={(e) => {
             if (e.key === "Enter") submit();
           }}

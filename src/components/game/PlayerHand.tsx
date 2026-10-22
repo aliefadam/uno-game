@@ -28,7 +28,7 @@ export function PlayerHand({
   return (
     <div
       className={cn(
-        "no-scrollbar relative max-h-[36dvh] w-full max-w-full overflow-x-clip overflow-y-auto overscroll-contain px-2 pb-3 pt-8",
+        "relative max-h-[30dvh] w-full max-w-full overflow-x-clip overflow-y-auto overscroll-contain px-2 pb-3 pt-8",
       )}
       aria-label={`Kartu di tangan: ${n}`}
     >
@@ -51,15 +51,15 @@ export function PlayerHand({
                   layout
                   initial={{ opacity: 0, y: 40, scale: 0.7 }}
                   animate={{
-                    opacity: isMyTurn && !isLegal && !isPairable ? 0.28 : isPairable ? 0.78 : 1,
-                    y: isHovered ? -5 : 0,
-                    scale: isHovered ? 1.015 : 1,
+                    opacity: !isMyTurn ? 0.42 : !isLegal && !isPairable ? 0.28 : isPairable ? 0.78 : 1,
+                    y: isMyTurn && isHovered ? -5 : 0,
+                    scale: isMyTurn && isHovered ? 1.015 : 1,
                     rotate: 0,
                   }}
                   exit={{ opacity: 0, y: -40, scale: 0.6, transition: { duration: 0.22 } }}
                   transition={{ type: "spring", stiffness: 420, damping: 32 }}
                   style={{ zIndex: isHovered ? 50 : i }}
-                  onMouseEnter={() => setHoveredId(card.id)}
+                  onMouseEnter={() => isMyTurn && setHoveredId(card.id)}
                   onMouseLeave={() => setHoveredId((h) => (h === card.id ? null : h))}
                   onClick={() => (isLegal || isPairable) && onPlay(card)}
                   className={cn(

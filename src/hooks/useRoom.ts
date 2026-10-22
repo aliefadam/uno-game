@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getRoomChannel, releaseRoomChannel, type RoomSnapshot } from "@/lib/room-channel";
 import type { ClientAction } from "@/lib/types";
 import { getSessionId } from "@/lib/session";
@@ -15,6 +15,7 @@ const EMPTY_SNAPSHOT: RoomSnapshot = {
   selfId: "",
   error: null,
   notices: [],
+  typingPlayers: [],
 };
 
 export function useRoom(code: string | null, nickname: string | null) {
@@ -44,5 +45,9 @@ export function useRoom(code: string | null, nickname: string | null) {
     channelRef.current?.dispatch(action);
   };
 
-  return { snapshot, dispatch, selfId, joinError };
+  const setTyping = useCallback((typing: boolean) => {
+    channelRef.current?.setTyping(typing);
+  }, []);
+
+  return { snapshot, dispatch, setTyping, selfId, joinError };
 }
