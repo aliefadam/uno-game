@@ -235,8 +235,8 @@ export function GameView({
 
   const handlePlay = (card: Card) => {
     const isLegal = legalCardIds.includes(card.id);
-    const isNumberCard = /^[0-9]$/.test(card.value);
-    const matchingCards = isNumberCard ? game.myHand.filter((handCard) => handCard.value === card.value) : [];
+    const canMatchAsGroup = /^[0-9]$/.test(card.value) || card.value === "skip";
+    const matchingCards = canMatchAsGroup ? game.myHand.filter((handCard) => handCard.value === card.value) : [];
     const matchingGroupHasLegalCard = matchingCards.some((matchingCard) => legalCardIds.includes(matchingCard.id));
     if (!isLegal && !(matchingCards.length > 1 && matchingGroupHasLegalCard)) {
       sfx.invalid();
@@ -461,8 +461,8 @@ export function GameView({
       <Modal
         open={!!pendingMatchCard}
         onClose={() => setPendingMatchCard(null)}
-        title={`Kartu ${pendingMatchCard?.value ?? ""} kembar`}
-        subtitle={`Ada kartu angka ${pendingMatchCard?.value ?? ""} lain di tanganmu. Mau melempar satu atau beberapa sekaligus?`}
+        title={`Kartu ${pendingMatchCard?.value === "skip" ? "Stop" : pendingMatchCard?.value ?? ""} kembar`}
+        subtitle={`Ada kartu ${pendingMatchCard?.value === "skip" ? "Stop" : `angka ${pendingMatchCard?.value ?? ""}`} lain di tanganmu. Mau melempar satu atau beberapa sekaligus?`}
         maxWidth="max-w-md"
       >
         <div className="space-y-4">
@@ -555,7 +555,7 @@ export function GameView({
                   setPendingMatchCard(null);
                 }}
               >
-                Lempar {matchingCardIds.length} kartu angka {pendingMatchCard.value}
+                Lempar {matchingCardIds.length} kartu {pendingMatchCard.value === "skip" ? "Stop" : `angka ${pendingMatchCard.value}`}
               </Button>
             </>
           )}

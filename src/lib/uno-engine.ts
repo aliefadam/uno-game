@@ -228,8 +228,8 @@ export function playCard(
   const selectedCards = cardsToPlay.map((id) => hand.find((candidate) => candidate.id === id)).filter((selected): selected is Card => Boolean(selected));
   if (selectedCards.length !== cardsToPlay.length) return { ok: false, reason: "Kartu yang dipilih tidak ada di tanganmu." };
   if (cardsToPlay.length > 1) {
-    if (!/^[0-9]$/.test(card.value) || selectedCards.some((selected) => selected.value !== card.value)) {
-      return { ok: false, reason: "Kartu yang dipilih tidak identik." };
+    if (!( /^[0-9]$/.test(card.value) || card.value === "skip") || selectedCards.some((selected) => selected.value !== card.value)) {
+      return { ok: false, reason: "Pilih kartu dengan angka atau simbol Stop yang sama." };
     }
     if (!isCardPlayable(selectedCards[0], prev, houseRules)) {
       return { ok: false, reason: "Kartu pertama di tumpukan harus cocok dengan kartu di meja." };
@@ -270,10 +270,12 @@ export function playCard(
 
   switch (card.value) {
     case "skip": {
-      nextAlivePlayer(state);
-      const skipped = currentPlayerId(state);
-      events.push(pushEvent(state, { type: "skip", actorId: playerId, targetId: skipped ?? undefined }));
-      nextAlivePlayer(state);
+      for (let i = 0; i < playedCards.length; i += 1) {
+        nextAlivePlayer(state);
+        const skipped = currentPlayerId(state);
+        events.push(pushEvent(state, { type: "skip", actorId: playerId, targetId: skipped ?? undefined }));
+        nextAlivePlayer(state);
+      }
       break;
     }
     case "reverse": {

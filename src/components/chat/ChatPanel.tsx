@@ -27,6 +27,7 @@ export function ChatPanel({
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastCount = useRef(0);
+  const didInitialScroll = useRef(false);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSignal = useRef(0);
 
@@ -61,7 +62,10 @@ export function ChatPanel({
     const el = scrollRef.current;
     if (!el) return;
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (isNearBottom || messages.length <= 1) {
+    if (messages.length > 0 && !didInitialScroll.current) {
+      el.scrollTop = el.scrollHeight;
+      didInitialScroll.current = true;
+    } else if (isNearBottom || messages.length <= 1) {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     }
     if (messages.length > lastCount.current && lastCount.current !== 0) {

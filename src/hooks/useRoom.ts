@@ -14,6 +14,8 @@ const EMPTY_SNAPSHOT: RoomSnapshot = {
   isHost: false,
   selfId: "",
   error: null,
+  reconnectAvailable: false,
+  reconnecting: false,
   notices: [],
   typingPlayers: [],
 };
@@ -49,5 +51,9 @@ export function useRoom(code: string | null, nickname: string | null) {
     channelRef.current?.setTyping(typing);
   }, []);
 
-  return { snapshot, dispatch, setTyping, selfId, joinError };
+  const reconnect = useCallback(() => {
+    channelRef.current?.reconnect();
+  }, []);
+
+  return { snapshot, dispatch, setTyping, reconnect, selfId, joinError };
 }

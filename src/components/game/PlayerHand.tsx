@@ -21,8 +21,8 @@ export function PlayerHand({
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const legalSet = new Set(legalCardIds);
   const n = hand.length;
-  const playableNumberValues = new Set(
-    hand.filter((card) => legalSet.has(card.id) && /^[0-9]$/.test(card.value)).map((card) => card.value),
+  const playableGroupValues = new Set(
+    hand.filter((card) => legalSet.has(card.id) && (/^[0-9]$/.test(card.value) || card.value === "skip")).map((card) => card.value),
   );
 
   return (
@@ -42,7 +42,8 @@ export function PlayerHand({
           <AnimatePresence initial={false}>
             {hand.map((card, i) => {
               const isLegal = isMyTurn && legalSet.has(card.id);
-              const isPairable = isMyTurn && !isLegal && /^[0-9]$/.test(card.value) && playableNumberValues.has(card.value);
+              const canMatchAsGroup = /^[0-9]$/.test(card.value) || card.value === "skip";
+              const isPairable = isMyTurn && !isLegal && canMatchAsGroup && playableGroupValues.has(card.value);
               const isHovered = hoveredId === card.id;
 
               return (

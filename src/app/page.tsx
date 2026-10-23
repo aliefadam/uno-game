@@ -40,7 +40,7 @@ export default function HomePage() {
   useEffect(() => {
     const supabase = getRealtimeClient();
     if (!supabase) {
-      toast.show("Supabase belum dikonfigurasi. Room online belum tersedia.", "warning");
+      toast.show("Room Online belum siap dimainkan", "warning");
       return;
     }
 
@@ -49,7 +49,7 @@ export default function HomePage() {
     const timeout = window.setTimeout(() => {
       if (finished) return;
       finished = true;
-      toast.show("Belum bisa terhubung ke Supabase Realtime. Periksa koneksi dan konfigurasi.", "error");
+      toast.show("Room Online belum siap dimainkan", "error");
     }, 10000);
 
     channel.subscribe((status) => {
@@ -57,11 +57,11 @@ export default function HomePage() {
       if (status === "SUBSCRIBED") {
         finished = true;
         window.clearTimeout(timeout);
-        toast.show("Supabase Realtime terhubung. Room online siap digunakan.", "success");
+        toast.show("Room Online Siap Dimainkan", "success");
       } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         finished = true;
         window.clearTimeout(timeout);
-        toast.show("Supabase Realtime belum terhubung. Periksa URL, publishable key, dan pengaturan Realtime.", "error");
+        toast.show("Room Online belum siap dimainkan", "error");
       }
     });
 

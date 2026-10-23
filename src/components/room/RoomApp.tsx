@@ -79,7 +79,7 @@ function NicknameGate({ code, onSubmit }: { code: string; onSubmit: (name: strin
   );
 }
 
-function StatusScreen({ icon, title, desc }: { icon: string; title: string; desc: string }) {
+function StatusScreen({ icon, title, desc, onReconnect, reconnecting, reconnectAvailable }: { icon: string; title: string; desc: string; onReconnect?: () => void; reconnecting?: boolean; reconnectAvailable?: boolean }) {
   const router = useRouter();
   return (
     <CenteredCard>
@@ -87,8 +87,20 @@ function StatusScreen({ icon, title, desc }: { icon: string; title: string; desc
         <Icon name={icon} solid size={24} className="text-white/70" />
       </span>
       <h1 className="text-xl font-extrabold text-white">{title}</h1>
-      <p className="mt-1.5 text-sm text-white/55">{desc}</p>
-      <Button fullWidth size="lg" className="mt-6" icon={<Icon name="home" size={16} />} onClick={() => router.push("/")}>
+      <p className="mt-1.5 text-sm text-white/55">{reconnecting ? "Mencoba menyambungkan kembali ke room..." : desc}</p>
+      {reconnectAvailable && onReconnect && (
+        <Button
+          fullWidth
+          size="lg"
+          className="mt-6"
+          disabled={reconnecting}
+          icon={reconnecting ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Icon name="refresh" size={16} />}
+          onClick={onReconnect}
+        >
+          {reconnecting ? "Menyambungkan Ulang..." : "Coba Sambungkan Ulang"}
+        </Button>
+      )}
+      <Button fullWidth size="lg" className={reconnectAvailable ? "mt-3" : "mt-6"} icon={<Icon name="home" size={16} />} onClick={() => router.push("/")}>
         Kembali ke Beranda
       </Button>
     </CenteredCard>
@@ -103,7 +115,7 @@ export function RoomApp({ code }: { code: string }) {
     if (stored) setNickname(stored);
   }, [code]);
 
-  const { snapshot, dispatch, setTyping, selfId } = useRoom(code, nickname);
+  const { snapshot, dispatch, setTyping, reconnect, selfId } = useRoom(code, nickname);
 
   useEffect(() => {
     if (snapshot.notices.length > 0) {
@@ -113,7 +125,17 @@ export function RoomApp({ code }: { code: string }) {
   }, [snapshot.notices.length]);
 
   if (snapshot.error) {
-    return <StatusScreen icon="triangle-warning" title="Koneksi Room Bermasalah" desc={snapshot.error} />;
+    const connectionIssue = snapshot.reconnectAvailable;
+    return (
+      <StatusScreen
+        icon={connectionIssue ? "wifi" : "triangle-warning"}
+        title={connectionIssue ? "Koneksi Terputus" : "Room Bermasalah"}
+        desc={snapshot.error}
+        reconnectAvailable={connectionIssue}
+        reconnecting={snapshot.reconnecting}
+        onReconnect={reconnect}
+      />
+    );
   }
 
   if (!nickname) {
