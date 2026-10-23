@@ -175,6 +175,9 @@ export class RoomChannel {
   readonly selfId: string;
   private bc: BroadcastChannel | null = null;
   private realtime: RealtimeChannel | null = null;
+  private activeRoomsChannel: RealtimeChannel | null = null;
+  private activeRoomsReady = false;
+  private activePresenceTracked = false;
   private realtimeReady = false;
   private pendingNickname: string | null = null;
   private pendingJoinSent = false;
@@ -227,6 +230,7 @@ export class RoomChannel {
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
           this.realtimeReady = true;
+          this.connectActiveRoomsPresence();
           this.reconnecting = false;
           this.reconnectAvailable = false;
           this.transportError = null;
@@ -258,14 +262,61 @@ export class RoomChannel {
     this.realtimeReady = false;
     this.emit();
     const previous = this.realtime;
+    const previousPresence = this.activeRoomsChannel;
     this.realtime = null;
+    this.activeRoomsChannel = null;
+    this.activeRoomsReady = false;
+    this.activePresenceTracked = false;
     const supabase = getRealtimeClient();
-    if (previous && supabase) {
-      void supabase.removeChannel(previous).finally(() => {
+    if (supabase && (previous || previousPresence)) {
+      const removals = [previous, previousPresence]
+        .filter((channel): channel is RealtimeChannel => channel !== null)
+        .map((channel) => supabase.removeChannel(channel));
+      void Promise.allSettled(removals).then(() => {
         if (!this.destroyed) this.connectRealtime();
       });
     } else {
       this.connectRealtime();
+    }
+  }
+
+  private connectActiveRoomsPresence() {
+    const supabase = getRealtimeClient();
+    if (!supabase || this.activeRoomsChannel) {
+      this.syncActiveRoomPresence();
+      return;
+    }
+    this.activeRoomsChannel = supabase
+      .channel("uno-active-rooms", { config: { presence: { key: `${this.code}:${this.selfId}` } } })
+      .on("presence", { event: "sync" }, () => {
+        this.activeRoomsReady = true;
+        this.syncActiveRoomPresence();
+      })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          this.activeRoomsReady = true;
+          this.syncActiveRoomPresence();
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          this.activeRoomsReady = false;
+          this.activePresenceTracked = false;
+        }
+      });
+  }
+
+  private syncActiveRoomPresence() {
+    if (!this.activeRoomsReady || !this.activeRoomsChannel) return;
+    const persisted = readPersisted(this.code);
+    const isInActiveRoom = Boolean(
+      persisted &&
+      persisted.room.status !== "closed" &&
+      persisted.players.some((player) => player.id === this.selfId),
+    );
+    if (isInActiveRoom && !this.activePresenceTracked) {
+      this.activePresenceTracked = true;
+      void this.activeRoomsChannel.track({ roomCode: this.code });
+    } else if (!isInActiveRoom && this.activePresenceTracked) {
+      this.activePresenceTracked = false;
+      void this.activeRoomsChannel.untrack();
     }
   }
 
@@ -569,6 +620,7 @@ export class RoomChannel {
       const previous = readPersisted(this.code);
       if (!previous || msg.payload.updatedAt >= previous.updatedAt) writePersisted(this.code, msg.payload);
       const persisted = readPersisted(this.code);
+      this.syncActiveRoomPresence();
       if (persisted?.players.some((player) => player.id === this.selfId)) {
         this.pendingNickname = null;
         this.pendingJoinSent = false;
@@ -618,6 +670,7 @@ export class RoomChannel {
   private persistAndBroadcast(state: PersistedState, _nonceIgnored: null) {
     state.updatedAt = Date.now();
     writePersisted(this.code, state);
+    this.syncActiveRoomPresence();
     this.sendMessage({ type: "state", payload: state });
     this.emit();
   }
@@ -933,6 +986,7 @@ export class RoomChannel {
     window.removeEventListener("online", this.handleOnline);
     this.bc?.close();
     if (this.realtime) void getRealtimeClient()?.removeChannel(this.realtime);
+    if (this.activeRoomsChannel) void getRealtimeClient()?.removeChannel(this.activeRoomsChannel);
     this.listeners.clear();
   }
 }

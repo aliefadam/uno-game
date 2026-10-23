@@ -39,7 +39,7 @@ export function JoinRoomModal({ open, onClose }: { open: boolean; onClose: () =>
         <TextField label="Nickname Kamu" icon="user" placeholder="Contoh: Dina" value={nickname} maxLength={18} onChange={(e) => setNickname(e.target.value)} />
         <TextField
           label="Kode Room"
-          icon="hashtag"
+          icon="key"
           placeholder="UNO-7K2P"
           value={code}
           maxLength={10}

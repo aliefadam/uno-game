@@ -17,24 +17,30 @@ export default function HomePage() {
   const [roomCount, setRoomCount] = useState(0);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem("uno-tongkrongan:rooms-index");
-      const codes: string[] = raw ? JSON.parse(raw) : [];
-      let active = 0;
-      for (const code of codes) {
-        const data = window.localStorage.getItem(`uno-tongkrongan:room:${code}`);
-        if (!data) continue;
-        try {
-          const parsed = JSON.parse(data);
-          if (parsed?.room?.status && parsed.room.status !== "closed") active += 1;
-        } catch {
-          /* ignore */
-        }
-      }
-      setRoomCount(active);
-    } catch {
+    const supabase = getRealtimeClient();
+    if (!supabase) {
       setRoomCount(0);
+      return;
     }
+
+    const updateRoomCount = () => {
+      const presence = channel.presenceState<{ roomCode?: string }>();
+      const activeRoomCodes = new Set(
+        Object.values(presence).flat().map((entry) => entry.roomCode).filter((code): code is string => Boolean(code)),
+      );
+      setRoomCount(activeRoomCodes.size);
+    };
+    const channel = supabase
+      .channel("uno-active-rooms", { config: { presence: { key: `monitor:${randomId("home")}` } } })
+      .on("presence", { event: "sync" }, updateRoomCount)
+      .on("presence", { event: "join" }, updateRoomCount)
+      .on("presence", { event: "leave" }, updateRoomCount);
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED") updateRoomCount();
+    });
+    return () => {
+      void supabase.removeChannel(channel);
+    };
   }, []);
 
   useEffect(() => {
