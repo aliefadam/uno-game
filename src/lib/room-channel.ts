@@ -65,6 +65,7 @@ type PersistedState = {
   chat: ChatMessage[];
   engine: EngineState | null;
   winsByPlayerId?: Record<string, number>;
+  scoresResetAt?: number;
   updatedAt: number;
 };
 
@@ -130,7 +131,7 @@ function readPersisted(code: string): PersistedState | null {
     persisted.winsByPlayerId ??= {};
     for (const player of persisted.players) {
       const historyWins = persisted.chat.filter(
-        (message) => message.type === "system" && message.content === `${player.nickname} memenangkan pertandingan!`,
+        (message) => message.type === "system" && message.content === `${player.nickname} memenangkan pertandingan!` && (!persisted.scoresResetAt || message.createdAt > persisted.scoresResetAt),
       ).length;
       const wins = Math.max(persisted.winsByPlayerId[player.id] ?? 0, player.wins ?? 0, historyWins);
       persisted.winsByPlayerId[player.id] = wins;
@@ -659,6 +660,18 @@ export class RoomChannel {
           ...action.settings,
           houseRules: { ...room.settings.houseRules, ...(action.settings.houseRules ?? {}) },
         };
+        break;
+      }
+      case "room:reset-scores": {
+        if (room.hostPlayerId !== action.playerId) return;
+        if (room.status !== "waiting" && room.status !== "ready") return;
+        persisted.scoresResetAt = Date.now();
+        persisted.winsByPlayerId = {};
+        for (const player of players) {
+          player.wins = 0;
+          persisted.winsByPlayerId[player.id] = 0;
+        }
+        persisted.chat.push(systemMessage(room.id, "Host mereset skor room."));
         break;
       }
       case "room:add-bot": {

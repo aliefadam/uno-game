@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Icon } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
 import { Avatar, Badge, NumberStepper, SegmentedControl, Toggle } from "@/components/ui/Controls";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useToast } from "@/components/ui/Toast";
@@ -83,6 +84,7 @@ export function LobbyView({
   const router = useRouter();
   const toast = useToast();
   const [chatOpen, setChatOpen] = useState(false);
+  const [resetScoresOpen, setResetScoresOpen] = useState(false);
   const { unreadCount, markRead } = useUnreadChatCount(chat, selfId, chatOpen);
   const self = players.find((p) => p.id === selfId);
   const typingNames = players.filter((player) => typingPlayers.includes(player.id) && !player.isBot).map((player) => player.nickname);
@@ -157,13 +159,23 @@ export function LobbyView({
             <p className="text-sm font-semibold text-white/60">
               Pemain ({players.length}/{settings.maxPlayers})
             </p>
-            {isHost && players.length < settings.maxPlayers && (
-              <button
-                onClick={() => dispatch({ kind: "room:add-bot", playerId: selfId })}
-                className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 transition hover:bg-white/10"
-              >
-                <Icon name="robot" size={13} /> Tambah Bot
-              </button>
+            {isHost && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setResetScoresOpen(true)}
+                  className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 transition hover:border-rose-300/30 hover:bg-rose-500/10 hover:text-rose-100"
+                >
+                  <Icon name="rotate-left" size={13} /> Reset Skor
+                </button>
+                {players.length < settings.maxPlayers && (
+                  <button
+                    onClick={() => dispatch({ kind: "room:add-bot", playerId: selfId })}
+                    className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 transition hover:bg-white/10"
+                  >
+                    <Icon name="robot" size={13} /> Tambah Bot
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -311,6 +323,29 @@ export function LobbyView({
           </motion.div>
         )}
       </AnimatePresence>
+
+      <Modal
+        open={resetScoresOpen}
+        onClose={() => setResetScoresOpen(false)}
+        title="Reset skor room?"
+        subtitle="Skor kemenangan semua pemain di room ini akan kembali ke 0."
+      >
+        <div className="flex gap-2">
+          <Button variant="secondary" fullWidth onClick={() => setResetScoresOpen(false)}>Batal</Button>
+          <Button
+            variant="danger"
+            fullWidth
+            icon={<Icon name="rotate-left" size={15} />}
+            onClick={() => {
+              dispatch({ kind: "room:reset-scores", playerId: selfId });
+              setResetScoresOpen(false);
+              toast.show("Skor semua pemain berhasil direset.", "success");
+            }}
+          >
+            Reset Skor
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

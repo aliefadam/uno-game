@@ -129,6 +129,7 @@ export type ClientAction =
   | { kind: "room:ready"; playerId: string; ready: boolean }
   | { kind: "room:update-settings"; playerId: string; settings: Partial<RoomSettings> }
   | { kind: "room:add-bot"; playerId: string }
+  | { kind: "room:reset-scores"; playerId: string }
   | { kind: "room:remove-player"; playerId: string; targetId: string }
   | { kind: "room:leave"; playerId: string }
   | { kind: "game:start"; playerId: string }
