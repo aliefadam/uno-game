@@ -62,6 +62,7 @@ export const DEFAULT_SETTINGS: RoomSettings = {
 type PersistedState = {
   room: RoomRecord;
   players: Player[];
+  spectators?: Player[];
   chat: ChatMessage[];
   engine: EngineState | null;
   winsByPlayerId?: Record<string, number>;
@@ -81,6 +82,7 @@ type WireMessage =
 export type RoomSnapshot = {
   room: RoomRecord | null;
   players: Player[];
+  spectators: Player[];
   chat: ChatMessage[];
   game: GamePublicState | null;
   legalCardIds: string[];
@@ -128,6 +130,7 @@ function readPersisted(code: string): PersistedState | null {
     const raw = window.localStorage.getItem(storageKey(code));
     if (!raw) return null;
     const persisted = JSON.parse(raw) as PersistedState;
+    persisted.spectators ??= [];
     persisted.winsByPlayerId ??= {};
     for (const player of persisted.players) {
       const historyWins = persisted.chat.filter(
@@ -309,7 +312,7 @@ export class RoomChannel {
     const isInActiveRoom = Boolean(
       persisted &&
       persisted.room.status !== "closed" &&
-      persisted.players.some((player) => player.id === this.selfId),
+      (persisted.players.some((player) => player.id === this.selfId) || persisted.spectators?.some((player) => player.id === this.selfId)),
     );
     if (isInActiveRoom && !this.activePresenceTracked) {
       this.activePresenceTracked = true;
@@ -358,7 +361,7 @@ export class RoomChannel {
     const room: RoomRecord = {
       id: randomId("room"),
       code,
-      name: name.trim() || `Tongkrongan ${code.replace("UNO-", "")}`,
+      name: name.trim() || `Tongkrongan ${code}`,
       hostPlayerId: selfId,
       status: "waiting",
       settings,
@@ -367,6 +370,7 @@ export class RoomChannel {
     const persisted: PersistedState = {
       room,
       players: [host],
+      spectators: [],
       chat: [systemMessage(room.id, `${nickname} membuat room ini.`)],
       engine: null,
       winsByPlayerId: { [selfId]: 0 },
@@ -389,7 +393,8 @@ export class RoomChannel {
       this.sendMessage({ type: "join", playerId: this.selfId, nickname });
       if (this.requestTimer) clearTimeout(this.requestTimer);
       this.requestTimer = setTimeout(() => {
-        if (!readPersisted(this.code)?.players.some((player) => player.id === this.selfId)) {
+        const latest = readPersisted(this.code);
+        if (!latest?.players.some((player) => player.id === this.selfId) && !latest?.spectators?.some((player) => player.id === this.selfId)) {
           this.transportError = "Host tidak merespons. Pastikan host masih berada di room.";
           this.emit();
         }
@@ -404,12 +409,34 @@ export class RoomChannel {
       this.persistAndBroadcast(persisted, null);
       return { ok: true };
     }
+    const existingSpectator = persisted.spectators?.find((player) => player.id === this.selfId);
+    if (existingSpectator) {
+      existingSpectator.connectionStatus = "connected";
+      existingSpectator.lastSeen = Date.now();
+      this.persistAndBroadcast(persisted, null);
+      return { ok: true };
+    }
+    if ((room.status === "playing" || room.status === "finished") && persisted.engine) {
+      persisted.spectators ??= [];
+      persisted.spectators.push({
+        id: this.selfId,
+        nickname,
+        isHost: false,
+        isReady: false,
+        isBot: false,
+        connectionStatus: "connected",
+        joinedAt: Date.now(),
+        lastSeen: Date.now(),
+      });
+      persisted.chat.push(systemMessage(room.id, `${nickname} menunggu sebagai penonton.`));
+      this.persistAndBroadcast(persisted, null);
+      return { ok: true };
+    }
     if (room.status !== "waiting" && room.status !== "ready") {
       if (room.status === "closed") return { ok: false, reason: "Room sudah ditutup oleh host." };
       return { ok: false, reason: "Permainan sudah dimulai. Kamu tidak bisa masuk ke room ini." };
     }
-    const humanCount = players.filter((p) => !p.isBot).length + players.filter((p) => p.isBot).length;
-    if (humanCount >= room.settings.maxPlayers) return { ok: false, reason: "Room sudah penuh." };
+    if (players.length >= room.settings.maxPlayers) return { ok: false, reason: "Room sudah penuh." };
 
     const player: Player = {
       id: this.selfId,
@@ -452,7 +479,7 @@ export class RoomChannel {
     const notices = this.noticeQueue;
     this.noticeQueue = [];
     if (!persisted) {
-      return { room: null, players: [], chat: [], game: null, legalCardIds: [], isHost: false, selfId: this.selfId, error: this.transportError, reconnectAvailable: this.reconnectAvailable, reconnecting: this.reconnecting, notices, typingPlayers: [...this.typingPlayers] };
+      return { room: null, players: [], spectators: [], chat: [], game: null, legalCardIds: [], isHost: false, selfId: this.selfId, error: this.transportError, reconnectAvailable: this.reconnectAvailable, reconnecting: this.reconnecting, notices, typingPlayers: [...this.typingPlayers] };
     }
     const isHost = persisted.room.hostPlayerId === this.selfId;
     let game: GamePublicState | null = null;
@@ -467,6 +494,7 @@ export class RoomChannel {
     return {
       room: persisted.room,
       players: persisted.players,
+      spectators: persisted.spectators ?? [],
       chat: persisted.chat,
       game,
       legalCardIds: legal,
@@ -498,7 +526,7 @@ export class RoomChannel {
         this.persistAndBroadcast(persisted, null);
       }
     } else {
-      const me = persisted?.players.find((p) => p.id === this.selfId);
+      const me = persisted?.players.find((p) => p.id === this.selfId) ?? persisted?.spectators?.find((p) => p.id === this.selfId);
       if (me) {
         me.lastSeen = Date.now();
         if (persisted) writePersisted(this.code, persisted);
@@ -583,8 +611,31 @@ export class RoomChannel {
         this.persistAndBroadcast(persisted, null);
         return;
       }
+      const existingSpectator = persisted.spectators?.find((player) => player.id === msg.playerId);
+      if (existingSpectator) {
+        existingSpectator.connectionStatus = "connected";
+        existingSpectator.lastSeen = Date.now();
+        this.persistAndBroadcast(persisted, null);
+        return;
+      }
+      if ((persisted.room.status === "playing" || persisted.room.status === "finished") && persisted.engine) {
+        persisted.spectators ??= [];
+        persisted.spectators.push({
+          id: msg.playerId,
+          nickname: msg.nickname,
+          isHost: false,
+          isReady: false,
+          isBot: false,
+          connectionStatus: "connected",
+          joinedAt: Date.now(),
+          lastSeen: Date.now(),
+        });
+        persisted.chat.push(systemMessage(persisted.room.id, `${msg.nickname} menunggu sebagai penonton.`));
+        this.persistAndBroadcast(persisted, null);
+        return;
+      }
       if (persisted.room.status !== "waiting" && persisted.room.status !== "ready") {
-        this.sendMessage({ type: "join-error", playerId: msg.playerId, reason: "Permainan sudah dimulai. Kamu tidak bisa masuk ke room ini." });
+        this.sendMessage({ type: "join-error", playerId: msg.playerId, reason: "Room belum bisa menerima pemain atau penonton." });
         return;
       }
       if (persisted.players.length >= persisted.room.settings.maxPlayers) {
@@ -621,7 +672,7 @@ export class RoomChannel {
       if (!previous || msg.payload.updatedAt >= previous.updatedAt) writePersisted(this.code, msg.payload);
       const persisted = readPersisted(this.code);
       this.syncActiveRoomPresence();
-      if (persisted?.players.some((player) => player.id === this.selfId)) {
+      if (persisted?.players.some((player) => player.id === this.selfId) || persisted?.spectators?.some((player) => player.id === this.selfId)) {
         this.pendingNickname = null;
         this.pendingJoinSent = false;
         this.transportError = null;
@@ -649,7 +700,8 @@ export class RoomChannel {
     this.sendMessage({ type: "request-sync", playerId: this.selfId });
     if (this.requestTimer) clearTimeout(this.requestTimer);
     this.requestTimer = setTimeout(() => {
-      if (!readPersisted(this.code)?.players.some((player) => player.id === this.selfId)) {
+      const latest = readPersisted(this.code);
+      if (!latest?.players.some((player) => player.id === this.selfId) && !latest?.spectators?.some((player) => player.id === this.selfId)) {
         this.transportError = "Room tidak ditemukan atau host sedang offline.";
         this.reconnectAvailable = true;
         this.emit();
@@ -757,7 +809,14 @@ export class RoomChannel {
       }
       case "room:leave": {
         const idx = players.findIndex((p) => p.id === action.playerId);
-        if (idx === -1) break;
+        if (idx === -1) {
+          const spectatorIndex = (persisted.spectators ?? []).findIndex((p) => p.id === action.playerId);
+          if (spectatorIndex >= 0) {
+            const [leaving] = persisted.spectators!.splice(spectatorIndex, 1);
+            persisted.chat.push(systemMessage(room.id, `${leaving.nickname} berhenti menonton.`));
+          }
+          break;
+        }
         const [leaving] = players.splice(idx, 1);
         persisted.chat.push(systemMessage(room.id, `${leaving.nickname} meninggalkan room.`));
         if (players.filter((p) => !p.isBot).length === 0) {
@@ -861,7 +920,7 @@ export class RoomChannel {
       }
       case "chat:send": {
         if (!room.settings.chatEnabled) return;
-        const p = players.find((pl) => pl.id === action.playerId);
+        const p = players.find((pl) => pl.id === action.playerId) ?? persisted.spectators?.find((pl) => pl.id === action.playerId);
         if (!p) return;
         const content = action.content.trim().slice(0, 300);
         if (!content) return;

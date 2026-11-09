@@ -10,17 +10,34 @@ export function OpponentsBar({
   opponents,
   currentPlayerId,
   handCounts,
+  selfId,
+  players,
 }: {
   opponents: Player[];
   currentPlayerId: string | null;
   handCounts: Record<string, number>;
+  selfId: string;
+  players: Player[];
 }) {
+  const selfSeat = Math.max(0, players.findIndex((player) => player.id === selfId));
+  const seatCount = Math.max(2, players.length);
   return (
-    <div className="no-scrollbar flex shrink-0 gap-3 overflow-x-auto px-4 pb-1 pt-3 sm:justify-center sm:px-0">
+    <div
+      className={cn(
+        "uno-opponents-layer pointer-events-none absolute inset-0 z-[4]",
+        opponents.length > 4 && "uno-compact-seating",
+      )}
+      data-compact-seating={opponents.length > 4 ? "true" : "false"}
+    >
       <AnimatePresence initial={false}>
         {opponents.map((p) => {
           const count = handCounts[p.id] ?? 0;
           const isTurn = p.id === currentPlayerId;
+          const playerSeat = players.findIndex((player) => player.id === p.id);
+          const relativeSeat = (playerSeat - selfSeat + seatCount) % seatCount;
+          const angle = Math.PI / 2 + relativeSeat * (Math.PI * 2 / seatCount);
+          const left = 50 + Math.cos(angle) * 40;
+          const top = 50 + Math.sin(angle) * 36;
           return (
             <motion.div
               layout
@@ -28,13 +45,15 @@ export function OpponentsBar({
               initial={{ opacity: 0, scale: 0.8, y: -8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.8 }}
+              style={{ left: `${left}%`, top: `${top}%` }}
+              data-opponent-seat
               className={cn(
-                "relative flex shrink-0 flex-col items-center gap-1.5 rounded-2xl border px-4 py-3 transition",
-                isTurn ? "border-[#ff4d6d]/80 bg-[#ff4d6d]/[0.14] shadow-[0_0_0_3px_rgba(255,77,109,0.18),0_0_24px_rgba(255,77,109,0.16)]" : "border-white/10 bg-white/[0.03]",
+                "uno-opponent-seat pointer-events-auto absolute flex w-[5.25rem] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-2xl border px-1.5 py-1.5 shadow-xl backdrop-blur-md transition md:w-[7.5rem] md:gap-1.5 md:px-3 md:py-2.5",
+                isTurn ? "border-[#ff4d6d]/80 bg-[#25141e]/95 shadow-[0_0_0_3px_rgba(255,77,109,0.18),0_0_24px_rgba(255,77,109,0.2)]" : "border-white/15 bg-[#10121d]/90",
               )}
             >
               <div className="relative" data-player-avatar={p.id}>
-                <Avatar name={p.nickname} size={46} />
+                <Avatar name={p.nickname} size={32} />
                 <span
                   className={cn(
                     "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#0d0f1d]",
@@ -51,20 +70,11 @@ export function OpponentsBar({
                   />
                 )}
               </div>
-              <p className="max-w-[96px] truncate text-xs font-bold text-white/90">{p.nickname}</p>
-              <p className="whitespace-nowrap text-xs font-semibold text-white/75">
+              <p className="max-w-full truncate text-[0.62rem] font-bold text-white/90 md:text-xs">{p.nickname}</p>
+              <p className="whitespace-nowrap text-[0.56rem] font-semibold text-white/75 md:text-xs">
                 Sisa kartu: <span className="font-extrabold text-white">{count}</span>
               </p>
-              {isTurn && (
-                <motion.span
-                  initial={{ opacity: 0, y: 3 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="rounded-full border border-rose-300/40 bg-rose-500/25 px-2 py-0.5 text-[0.6rem] font-extrabold uppercase tracking-wide text-rose-100"
-                >
-                  Giliran sekarang
-                </motion.span>
-              )}
-              {count === 1 && <Badge tone="warning">UNO!</Badge>}
+              {count === 1 && <span className="absolute right-0 top-0 z-10 scale-[0.75] md:scale-100"><Badge tone="warning">UNO!</Badge></span>}
             </motion.div>
           );
         })}
@@ -81,8 +91,6 @@ export function TableCenter({
   highlightDraw,
   onDraw,
   lastAction,
-  playHint,
-  showHintOnMobile = false,
 }: {
   topCard: Card | null;
   deckCount: number;
@@ -91,17 +99,9 @@ export function TableCenter({
   highlightDraw: boolean;
   onDraw: () => void;
   lastAction: string | null;
-  playHint: string;
-  showHintOnMobile?: boolean;
 }) {
   return (
-    <div className="flex w-full min-w-0 flex-col items-center gap-3 px-2 py-4">
-      {showHintOnMobile && (
-        <p className="w-full max-w-[min(100%,42rem)] break-words rounded-xl border border-[#ff8a3d]/25 bg-[#ff8a3d]/[0.1] px-4 py-2.5 text-center text-xs font-semibold leading-relaxed text-white/85 sm:px-5 sm:text-sm md:hidden">
-          {playHint}
-        </p>
-      )}
-
+    <div className="uno-table-center flex w-full min-w-0 flex-col items-center gap-3 px-2 py-4">
       <div className="flex items-center gap-5 sm:gap-8">
         <button
           onClick={onDraw}
@@ -111,7 +111,7 @@ export function TableCenter({
             highlightDraw && canDraw && "animate-pulse drop-shadow-[0_0_20px_rgba(255,138,61,0.8)]",
           )}
         >
-          <CardBack className="h-[clamp(3.75rem,15vw,6.75rem)] w-[clamp(2.5rem,10vw,4.5rem)] shadow-xl transition group-active:scale-95" />
+          <CardBack className="uno-table-card h-[clamp(3.75rem,15vw,6.75rem)] w-[clamp(2.5rem,10vw,4.5rem)] shadow-xl transition group-active:scale-95" />
           {highlightDraw && canDraw && (
             <motion.span
               aria-hidden="true"
@@ -139,7 +139,7 @@ export function TableCenter({
           )}
         </button>
 
-        <div className="relative h-[clamp(3.75rem,15vw,6.75rem)] w-[clamp(2.5rem,10vw,4.5rem)]" data-discard-pile>
+        <div className="uno-discard-pile relative h-[clamp(3.75rem,15vw,6.75rem)] w-[clamp(2.5rem,10vw,4.5rem)]" data-discard-pile>
           <AnimatePresence mode="popLayout">
             {topCard && (
               <motion.div
@@ -156,7 +156,7 @@ export function TableCenter({
           </AnimatePresence>
         </div>
       </div>
-      <div className="flex min-h-10 items-center justify-center" aria-live="polite">
+      <div className="uno-last-action flex min-h-10 items-center justify-center" aria-live="polite">
         <AnimatePresence mode="wait" initial={false}>
           {lastAction && (
             <motion.p

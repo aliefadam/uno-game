@@ -22,15 +22,14 @@ export function JoinRoomModal({ open, onClose }: { open: boolean; onClose: () =>
       toast.show("Nama minimal 2 karakter ya.", "warning");
       return;
     }
-    const normalized = code.trim().toUpperCase().replace(/\s+/g, "");
-    if (!normalized) {
-      toast.show("Masukkan kode room terlebih dahulu.", "warning");
+    const normalized = code.trim();
+    if (!/^\d{4}$/.test(normalized)) {
+      toast.show("Kode room harus terdiri dari 4 angka.", "warning");
       return;
     }
-    const finalCode = normalized.startsWith("UNO-") ? normalized : `UNO-${normalized}`;
     setChecking(true);
     setStoredNickname(trimmedName);
-    router.push(`/room/${finalCode}`);
+    router.push(`/room/${normalized}`);
   };
 
   return (
@@ -40,10 +39,12 @@ export function JoinRoomModal({ open, onClose }: { open: boolean; onClose: () =>
         <TextField
           label="Kode Room"
           icon="key"
-          placeholder="UNO-7K2P"
+          placeholder="1234"
           value={code}
-          maxLength={10}
-          onChange={(e) => setCode(e.target.value.toUpperCase())}
+          inputMode="numeric"
+          pattern="[0-9]{4}"
+          maxLength={4}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
           onKeyDown={(e) => {
             if (e.key === "Enter") submit();
           }}

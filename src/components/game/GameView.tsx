@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Icon } from "@/components/ui/Icon";
@@ -70,6 +69,8 @@ export function GameView({
   onTyping,
   selfId,
   isHost,
+  isSpectator = false,
+  onStopWatching,
   dispatch,
 }: {
   room: RoomRecord;
@@ -81,6 +82,8 @@ export function GameView({
   onTyping: (typing: boolean) => void;
   selfId: string;
   isHost: boolean;
+  isSpectator?: boolean;
+  onStopWatching?: () => void;
   dispatch: (action: ClientAction) => void;
 }) {
   const router = useRouter();
@@ -91,6 +94,7 @@ export function GameView({
   const typingNames = players.filter((player) => typingPlayers.includes(player.id) && !player.isBot).map((player) => player.nickname);
   const [pendingWildCard, setPendingWildCard] = useState<Card | null>(null);
   const [unoNotice, setUnoNotice] = useState<{ name: string; type: "uno" | "win" } | null>(null);
+  const [showWinModal, setShowWinModal] = useState(false);
   const [pendingMatchCard, setPendingMatchCard] = useState<Card | null>(null);
   const [matchPlayMode, setMatchPlayMode] = useState<"choice" | "matching">("choice");
   const [matchingCardIds, setMatchingCardIds] = useState<string[]>([]);
@@ -170,19 +174,29 @@ export function GameView({
     for (const player of players) {
       const count = game.handCounts[player.id];
       const becameUno = previous[player.id] !== 1 && count === 1;
-      const won = (previous[player.id] ?? 0) > 0 && count === 0 && game.winnerId === player.id;
-      if (becameUno || won) {
-        setUnoNotice({ name: player.nickname, type: won ? "win" : "uno" });
+      const wentOut = (previous[player.id] ?? 0) > 0 && count === 0 && game.winOrder.includes(player.id);
+      if (becameUno || wentOut) {
+        setUnoNotice({ name: player.nickname, type: wentOut ? "win" : "uno" });
         if (unoNoticeTimer.current !== null) window.clearTimeout(unoNoticeTimer.current);
         unoNoticeTimer.current = window.setTimeout(() => setUnoNotice(null), 2600);
-        if (!won) sfx.uno();
+        if (!wentOut) sfx.uno();
       }
     }
-  }, [game.handCounts, players]);
+  }, [game.handCounts, game.winOrder, players]);
 
   useEffect(() => () => {
     if (unoNoticeTimer.current !== null) window.clearTimeout(unoNoticeTimer.current);
   }, []);
+
+  useEffect(() => {
+    if (game.status !== "finished") {
+      setShowWinModal(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => setShowWinModal(true), 1000);
+    return () => window.clearTimeout(timer);
+  }, [game.status, game.winnerId]);
 
   useEffect(() => {
     const plays = game.recentPlays ?? [];
@@ -250,9 +264,9 @@ export function GameView({
       const legalBaseCard = matchingCards.find((matchingCard) => legalCardIds.includes(matchingCard.id));
       setPendingMatchCard(card);
       setMatchPlayMode("choice");
-      setMatchingCardIds(legalBaseCard && legalBaseCard.id !== card.id
-        ? [legalBaseCard.id, card.id]
-        : [card.id]);
+      setMatchingCardIds(legalBaseCard
+        ? [legalBaseCard.id, ...matchingCards.filter((matchingCard) => matchingCard.id !== legalBaseCard.id).map((matchingCard) => matchingCard.id)]
+        : matchingCards.map((matchingCard) => matchingCard.id));
       return;
     }
     if (card.color === "wild") {
@@ -272,7 +286,7 @@ export function GameView({
   const winner = players.find((p) => p.id === game.winnerId);
 
   return (
-    <div className="relative flex h-[calc(100dvh-4rem)] min-h-0 flex-col overflow-hidden">
+    <div className="relative isolate flex min-h-0 flex-1 flex-col overflow-hidden">
       <AnimatePresence>
         {unoNotice && (
           <div className="pointer-events-none absolute inset-0 z-[100] flex items-center justify-center px-4">
@@ -297,7 +311,7 @@ export function GameView({
         )}
       </AnimatePresence>
       <div className="z-20 shrink-0 border-b border-white/5 bg-[#07080f]/80 px-4 py-2.5 backdrop-blur-xl sm:px-6">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+        <div className="flex w-full items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <span className="rounded-lg bg-white/5 px-2.5 py-1 text-xs font-bold tracking-wide text-white/70">{room.code}</span>
             <span
@@ -313,19 +327,23 @@ export function GameView({
           <TurnTimerBar deadline={game.turnDeadline} durationSeconds={game.turnDurationSeconds} isMyTurn={isMyTurn} />
           <button
             onClick={() => {
+              if (isSpectator && onStopWatching) {
+                onStopWatching();
+                return;
+              }
               dispatch({ kind: "room:leave", playerId: selfId });
               router.push("/");
             }}
             className="flex items-center gap-1.5 rounded-lg bg-white/5 px-2.5 py-1.5 text-xs font-semibold text-white/60 transition hover:bg-rose-500/20 hover:text-rose-300"
           >
-            <Icon name="exit" size={13} /> <span className="hidden sm:inline">Keluar</span>
+            <Icon name={isSpectator ? "angle-left" : "exit"} size={13} /> <span className="hidden sm:inline">{isSpectator ? "Lobby" : "Keluar"}</span>
           </button>
         </div>
       </div>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 gap-4 overflow-hidden px-2 pb-2 sm:px-6 lg:px-8">
-        <aside className="hidden w-36 shrink-0 flex-col gap-3 pt-5 md:flex lg:w-44" aria-label="Info permainan">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+      <div className="relative flex min-h-0 w-full flex-1 gap-3 overflow-hidden px-2 pb-2 sm:px-4 lg:px-5">
+        <aside className="relative z-20 hidden w-40 shrink-0 flex-col gap-2 self-start pt-4 xl:flex" aria-label="Info permainan">
+          <div className="rounded-2xl border border-white/10 bg-[#0c0e18]/80 p-3 shadow-xl backdrop-blur-md">
             <p className="text-[0.62rem] font-bold uppercase tracking-[0.14em] text-white/40">Arah permainan</p>
             <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-white/85">
               <motion.span animate={{ rotate: game.direction === 1 ? 0 : 180 }} transition={{ duration: 0.3 }}>
@@ -346,93 +364,108 @@ export function GameView({
             </div>
             <p className="mt-1 text-xs text-white/50">Warna {COLOR_NAME[game.activeColor]}</p>
           </div>
-          <div className="rounded-2xl border border-[#ff8a3d]/20 bg-[#ff8a3d]/[0.08] p-3 text-xs font-medium leading-relaxed text-white/80">
+          <div className="rounded-2xl border border-[#ff8a3d]/20 bg-[#151018]/85 p-3 text-xs font-medium leading-relaxed text-white/80 shadow-xl backdrop-blur-md">
             <span className="mb-1 block text-[0.62rem] font-bold uppercase tracking-[0.14em] text-amber-200/70">Petunjuk</span>
             {playHint}
           </div>
         </aside>
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="absolute left-3 top-3 z-10 flex items-center gap-2 text-xs font-semibold text-white/65 sm:left-4 sm:top-4 md:hidden">
-            <motion.span animate={{ rotate: game.direction === 1 ? 0 : 180 }} transition={{ duration: 0.3 }}>
-              <Icon name="arrow-right" size={14} />
-            </motion.span>
-            Arah Permainan
-            <span
-              className={cn(
-                "ml-1 h-3 w-3 rounded-full ring-2 ring-white/30",
-                game.activeColor === "red" && "bg-[#ff4d4d]",
-                game.activeColor === "blue" && "bg-[#3fa8ff]",
-                game.activeColor === "green" && "bg-[#4ad66d]",
-                game.activeColor === "yellow" && "bg-[#ffd24a]",
-                game.activeColor === "wild" && "bg-gradient-to-br from-[#ff4d4d] via-[#ffd24a] to-[#3fa8ff]",
-              )}
-            />
-          </div>
-          <OpponentsBar
-            opponents={opponents}
-            currentPlayerId={game.currentPlayerId}
-            handCounts={game.handCounts}
-          />
-
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden">
-            <TableCenter
-              topCard={game.topCard}
-              deckCount={game.deckCount}
-              pendingDraw={game.pendingDraw}
-              canDraw={isMyTurn && !game.drawnCardId}
-              highlightDraw={isMyTurn && !game.drawnCardId && (game.pendingDraw > 0 || legalCardIds.length === 0)}
-              onDraw={handleDraw}
-              lastAction={lastActionLabel}
-              playHint={playHint}
-              showHintOnMobile
-            />
-          </div>
-
-          <div className="relative shrink-0">
-            <div className="mb-2 flex items-center justify-center gap-2 px-2">
-              <div className="flex items-center gap-2">
-                <Avatar name={me?.nickname ?? "?"} size={28} />
-                <span className="text-sm font-bold text-white/80">{me?.nickname}</span>
-                {isMyTurn && (
-                  <span className="rounded-full border border-emerald-300/30 bg-emerald-400/15 px-2 py-1 text-[0.6rem] font-extrabold uppercase tracking-wide text-emerald-200">
-                    Giliranmu
+          <div className="z-20 flex shrink-0 flex-col gap-1 px-2 pb-1 pt-1 md:hidden">
+            <div className="flex items-center gap-2 text-xs font-semibold text-white/65">
+              <motion.span animate={{ rotate: game.direction === 1 ? 0 : 180 }} transition={{ duration: 0.3 }}>
+                <Icon name="arrow-right" size={14} />
+              </motion.span>
+              Arah Permainan
+              <span
+                className={cn(
+                  "ml-1 h-3 w-3 rounded-full ring-2 ring-white/30",
+                  game.activeColor === "red" && "bg-[#ff4d4d]",
+                  game.activeColor === "blue" && "bg-[#3fa8ff]",
+                  game.activeColor === "green" && "bg-[#4ad66d]",
+                  game.activeColor === "yellow" && "bg-[#ffd24a]",
+                  game.activeColor === "wild" && "bg-gradient-to-br from-[#ff4d4d] via-[#ffd24a] to-[#3fa8ff]",
+                )}
+              />
+              <button
+                onClick={() => {
+                  markRead();
+                  setChatOpen(true);
+                }}
+                className="relative ml-auto flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/70 transition hover:bg-white/10"
+                aria-label={unreadCount > 0 ? `Buka chat, ${unreadCount} pesan baru` : "Buka chat"}
+              >
+                <Icon name="comment-dots" size={14} />
+                {unreadCount > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[#111321] bg-rose-500 px-1 text-[0.5rem] font-extrabold leading-none text-white shadow">
+                    {unreadCount > 99 ? "99+" : unreadCount}
                   </span>
                 )}
-              </div>
-              {showPassButton && (
-                <button
-                  onClick={() => dispatch({ kind: "game:pass-turn", playerId: selfId })}
-                  className="ml-2 flex items-center gap-1 rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-white/60 transition hover:bg-white/15"
-                >
-                  <Icon name="fast-forward" size={12} /> Lewati Giliran
-                </button>
-              )}
+              </button>
             </div>
+            <p className="rounded-xl border border-[#ff8a3d]/35 bg-[#171018]/90 px-3 py-2 text-center text-xs font-semibold leading-snug text-white/90 shadow-sm">
+              {playHint}
+            </p>
+          </div>
+          <div className="uno-table-stage relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden">
+            <div aria-hidden="true" className="uno-felt pointer-events-none absolute left-1/2 top-1/2 h-[72%] w-[82%] -translate-x-1/2 -translate-y-1/2 rounded-[50%] border-[5px] border-[#9b6338]/70 bg-[radial-gradient(ellipse_at_center,#176043_0%,#104b39_58%,#0b352c_100%)] shadow-[0_0_0_2px_rgba(245,192,117,0.16),0_24px_80px_rgba(0,0,0,0.38),inset_0_0_50px_rgba(0,0,0,0.3)] sm:w-[76%]" />
+            <div aria-hidden="true" className="uno-felt-inner pointer-events-none absolute left-1/2 top-1/2 h-[66%] w-[78%] -translate-x-1/2 -translate-y-1/2 rounded-[50%] border border-[#eac28b]/20 sm:w-[72%]" />
+            <OpponentsBar
+              opponents={opponents}
+              currentPlayerId={game.currentPlayerId}
+              handCounts={game.handCounts}
+              players={players}
+              selfId={selfId}
+            />
+            <div className="uno-table-stage-center relative z-[5] flex min-h-0 w-full flex-1 items-center justify-center">
+              <TableCenter
+                topCard={game.topCard}
+                deckCount={game.deckCount}
+                pendingDraw={game.pendingDraw}
+                canDraw={isMyTurn && !game.drawnCardId}
+                highlightDraw={isMyTurn && !game.drawnCardId && (game.pendingDraw > 0 || legalCardIds.length === 0)}
+                onDraw={handleDraw}
+                lastAction={lastActionLabel}
+              />
+            </div>
+          </div>
 
-            <PlayerHand hand={game.myHand} legalCardIds={legalCardIds} isMyTurn={isMyTurn} onPlay={handlePlay} />
+          <div className="uno-player-control-area relative z-30 shrink-0">
+            {isSpectator ? (
+              <div className="mb-2 flex items-center justify-center gap-2 px-2 text-xs font-semibold text-white/50">
+                <Icon name="eye" size={14} /> Menonton pertandingan
+              </div>
+            ) : (
+              <>
+                <div className="mb-2 flex items-center justify-center gap-2 px-2">
+                  <div className="flex items-center gap-2">
+                    <Avatar name={me?.nickname ?? "?"} size={28} />
+                    <span className="text-sm font-bold text-white/80">{me?.nickname}</span>
+                    {isMyTurn && (
+                      <span className="rounded-full border border-emerald-300/30 bg-emerald-400/15 px-2 py-1 text-[0.6rem] font-extrabold uppercase tracking-wide text-emerald-200">
+                        Giliranmu
+                      </span>
+                    )}
+                  </div>
+                  {showPassButton && (
+                    <button
+                      onClick={() => dispatch({ kind: "game:pass-turn", playerId: selfId })}
+                      className="ml-2 flex items-center gap-1 rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-white/60 transition hover:bg-white/15"
+                    >
+                      <Icon name="fast-forward" size={12} /> Lewati Giliran
+                    </button>
+                  )}
+                </div>
+
+                <PlayerHand hand={game.myHand} legalCardIds={legalCardIds} isMyTurn={isMyTurn} onPlay={handlePlay} />
+              </>
+            )}
           </div>
         </div>
 
-        <div className="hidden min-h-0 w-72 shrink-0 rounded-3xl border border-white/10 bg-white/[0.03] lg:flex xl:w-80">
+        <div className="relative z-10 hidden min-h-0 w-[min(24vw,22rem)] shrink-0 rounded-3xl border border-white/10 bg-[#0e101a]/85 shadow-[0_16px_50px_rgba(0,0,0,0.28)] backdrop-blur-md lg:flex">
           <ChatPanel messages={chat} selfId={selfId} disabled={!room.settings.chatEnabled} typingNames={typingNames} onTyping={onTyping} onSend={(content) => dispatch({ kind: "chat:send", playerId: selfId, content })} />
         </div>
       </div>
-
-      <button
-        onClick={() => {
-          markRead();
-          setChatOpen(true);
-        }}
-        className="fixed bottom-5 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-[#ff4d6d] to-[#ff8a3d] text-white shadow-[0_12px_30px_-8px_rgba(255,77,109,0.7)] lg:hidden"
-        aria-label={unreadCount > 0 ? `Buka chat, ${unreadCount} pesan baru` : "Buka chat"}
-      >
-        <Icon name="comment-dots" size={18} />
-        {unreadCount > 0 && (
-          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#111321] bg-rose-500 px-1 text-[0.6rem] font-extrabold leading-none text-white shadow-lg">
-            {unreadCount > 99 ? "99+" : unreadCount}
-          </span>
-        )}
-      </button>
 
       <AnimatePresence>
         {chatOpen && (
@@ -566,7 +599,7 @@ export function GameView({
       </Modal>
 
       <WinModal
-        open={game.status === "finished"}
+        open={showWinModal}
         winner={winner}
         players={players}
         handCounts={game.handCounts}
@@ -581,17 +614,17 @@ export function GameView({
         }}
       />
 
-      {flyingCard && typeof document !== "undefined" && createPortal(
+      {flyingCard && (
         <motion.div
           key={flyingCard.seq}
-          className="pointer-events-none fixed left-0 top-0 z-[120]"
+          className="pointer-events-none fixed left-0 top-0 z-[3]"
+          style={{ zIndex: 3 }}
           initial={{ x: flyingCard.fromX, y: flyingCard.fromY, scale: 0.65, rotate: -18, opacity: 0 }}
           animate={{ x: flyingCard.toX, y: flyingCard.toY, scale: 1, rotate: 0, opacity: [0, 1, 1, 0.9] }}
           transition={{ duration: 0.72, ease: [0.2, 0.75, 0.25, 1], times: [0, 0.15, 0.82, 1] }}
         >
           <PlayingCard card={flyingCard.card} className="w-16 drop-shadow-[0_12px_24px_rgba(0,0,0,0.55)]" />
-        </motion.div>,
-        document.body,
+        </motion.div>
       )}
     </div>
   );

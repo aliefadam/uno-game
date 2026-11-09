@@ -8,6 +8,7 @@ import { getSessionId } from "@/lib/session";
 const EMPTY_SNAPSHOT: RoomSnapshot = {
   room: null,
   players: [],
+  spectators: [],
   chat: [],
   game: null,
   legalCardIds: [],
