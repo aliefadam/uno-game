@@ -2,14 +2,8 @@ export function cn(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
 }
 
-const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
 export function generateRoomCode(): string {
-  let out = "";
-  for (let i = 0; i < 4; i++) {
-    out += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
-  }
-  return `UNO-${out}`;
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
 export function randomId(prefix = "id"): string {

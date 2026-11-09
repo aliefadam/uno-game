@@ -69,6 +69,8 @@ export function GameView({
   onTyping,
   selfId,
   isHost,
+  isSpectator = false,
+  onStopWatching,
   dispatch,
 }: {
   room: RoomRecord;
@@ -80,6 +82,8 @@ export function GameView({
   onTyping: (typing: boolean) => void;
   selfId: string;
   isHost: boolean;
+  isSpectator?: boolean;
+  onStopWatching?: () => void;
   dispatch: (action: ClientAction) => void;
 }) {
   const router = useRouter();
@@ -323,12 +327,16 @@ export function GameView({
           <TurnTimerBar deadline={game.turnDeadline} durationSeconds={game.turnDurationSeconds} isMyTurn={isMyTurn} />
           <button
             onClick={() => {
+              if (isSpectator && onStopWatching) {
+                onStopWatching();
+                return;
+              }
               dispatch({ kind: "room:leave", playerId: selfId });
               router.push("/");
             }}
             className="flex items-center gap-1.5 rounded-lg bg-white/5 px-2.5 py-1.5 text-xs font-semibold text-white/60 transition hover:bg-rose-500/20 hover:text-rose-300"
           >
-            <Icon name="exit" size={13} /> <span className="hidden sm:inline">Keluar</span>
+            <Icon name={isSpectator ? "angle-left" : "exit"} size={13} /> <span className="hidden sm:inline">{isSpectator ? "Lobby" : "Keluar"}</span>
           </button>
         </div>
       </div>
@@ -422,27 +430,35 @@ export function GameView({
           </div>
 
           <div className="uno-player-control-area relative z-30 shrink-0">
-            <div className="mb-2 flex items-center justify-center gap-2 px-2">
-              <div className="flex items-center gap-2">
-                <Avatar name={me?.nickname ?? "?"} size={28} />
-                <span className="text-sm font-bold text-white/80">{me?.nickname}</span>
-                {isMyTurn && (
-                  <span className="rounded-full border border-emerald-300/30 bg-emerald-400/15 px-2 py-1 text-[0.6rem] font-extrabold uppercase tracking-wide text-emerald-200">
-                    Giliranmu
-                  </span>
-                )}
+            {isSpectator ? (
+              <div className="mb-2 flex items-center justify-center gap-2 px-2 text-xs font-semibold text-white/50">
+                <Icon name="eye" size={14} /> Menonton pertandingan
               </div>
-              {showPassButton && (
-                <button
-                  onClick={() => dispatch({ kind: "game:pass-turn", playerId: selfId })}
-                  className="ml-2 flex items-center gap-1 rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-white/60 transition hover:bg-white/15"
-                >
-                  <Icon name="fast-forward" size={12} /> Lewati Giliran
-                </button>
-              )}
-            </div>
+            ) : (
+              <>
+                <div className="mb-2 flex items-center justify-center gap-2 px-2">
+                  <div className="flex items-center gap-2">
+                    <Avatar name={me?.nickname ?? "?"} size={28} />
+                    <span className="text-sm font-bold text-white/80">{me?.nickname}</span>
+                    {isMyTurn && (
+                      <span className="rounded-full border border-emerald-300/30 bg-emerald-400/15 px-2 py-1 text-[0.6rem] font-extrabold uppercase tracking-wide text-emerald-200">
+                        Giliranmu
+                      </span>
+                    )}
+                  </div>
+                  {showPassButton && (
+                    <button
+                      onClick={() => dispatch({ kind: "game:pass-turn", playerId: selfId })}
+                      className="ml-2 flex items-center gap-1 rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-white/60 transition hover:bg-white/15"
+                    >
+                      <Icon name="fast-forward" size={12} /> Lewati Giliran
+                    </button>
+                  )}
+                </div>
 
-            <PlayerHand hand={game.myHand} legalCardIds={legalCardIds} isMyTurn={isMyTurn} onPlay={handlePlay} />
+                <PlayerHand hand={game.myHand} legalCardIds={legalCardIds} isMyTurn={isMyTurn} onPlay={handlePlay} />
+              </>
+            )}
           </div>
         </div>
 
