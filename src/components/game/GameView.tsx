@@ -90,7 +90,7 @@ export function GameView({
   const { unreadCount, markRead } = useUnreadChatCount(chat, selfId, chatOpen);
   const typingNames = players.filter((player) => typingPlayers.includes(player.id) && !player.isBot).map((player) => player.nickname);
   const [pendingWildCard, setPendingWildCard] = useState<Card | null>(null);
-  const [unoNotice, setUnoNotice] = useState<string | null>(null);
+  const [unoNotice, setUnoNotice] = useState<{ name: string; type: "uno" | "win" } | null>(null);
   const [pendingMatchCard, setPendingMatchCard] = useState<Card | null>(null);
   const [matchPlayMode, setMatchPlayMode] = useState<"choice" | "matching">("choice");
   const [matchingCardIds, setMatchingCardIds] = useState<string[]>([]);
@@ -168,11 +168,14 @@ export function GameView({
     if (!previous) return;
 
     for (const player of players) {
-      if (previous[player.id] !== 1 && game.handCounts[player.id] === 1) {
-        setUnoNotice(player.nickname);
+      const count = game.handCounts[player.id];
+      const becameUno = previous[player.id] !== 1 && count === 1;
+      const won = (previous[player.id] ?? 0) > 0 && count === 0 && game.winnerId === player.id;
+      if (becameUno || won) {
+        setUnoNotice({ name: player.nickname, type: won ? "win" : "uno" });
         if (unoNoticeTimer.current !== null) window.clearTimeout(unoNoticeTimer.current);
         unoNoticeTimer.current = window.setTimeout(() => setUnoNotice(null), 2600);
-        sfx.uno();
+        if (!won) sfx.uno();
       }
     }
   }, [game.handCounts, players]);
@@ -286,9 +289,9 @@ export function GameView({
                 animate={{ opacity: [0.35, 1, 0.35] }}
                 transition={{ duration: 0.8, repeat: Infinity }}
               />
-              <span className="rounded-full border border-amber-200/40 bg-amber-300/15 px-3 py-1 text-xs font-black tracking-[0.28em] text-amber-200">UNO</span>
-              <p className="mt-2 text-4xl font-black italic tracking-tight text-white drop-shadow-[0_3px_14px_rgba(255,191,64,0.65)] sm:text-5xl">{unoNotice}!</p>
-              <p className="mt-1 text-xs font-bold uppercase tracking-[0.18em] text-white/75">Tersisa satu kartu</p>
+              <span className="rounded-full border border-amber-200/40 bg-amber-300/15 px-3 py-1 text-xs font-black tracking-[0.28em] text-amber-200">{unoNotice.type === "uno" ? "UNO" : "MENANG"}</span>
+              <p className="mt-2 text-4xl font-black italic tracking-tight text-white drop-shadow-[0_3px_14px_rgba(255,191,64,0.65)] sm:text-5xl">{unoNotice.name}{unoNotice.type === "uno" ? "!" : " MENANG!"}</p>
+              <p className="mt-1 text-xs font-bold uppercase tracking-[0.18em] text-white/75">{unoNotice.type === "uno" ? "Tersisa satu kartu" : "Kartu habis"}</p>
             </motion.div>
           </div>
         )}
