@@ -49,6 +49,7 @@ export function PlayerHand({
               return (
                 <motion.button
                   key={card.id}
+                  data-hand-card-id={card.id}
                   layout
                   initial={{ opacity: 0, y: 40, scale: 0.7 }}
                   animate={{

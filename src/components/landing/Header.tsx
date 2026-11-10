@@ -6,12 +6,12 @@ import { Icon } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
 import { HowToPlayModal } from "./HowToPlayModal";
 
-export function Header({ onlineHint }: { onlineHint: number }) {
+export function Header({ onlineHint, roomLayout = false }: { onlineHint: number; roomLayout?: boolean }) {
   const [howToOpen, setHowToOpen] = useState(false);
 
   return (
     <header className="sticky top-0 z-40 shrink-0 border-b border-white/5 bg-[#07080f]/70 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+      <div className={`mx-auto flex h-16 items-center justify-between ${roomLayout ? "w-full max-w-none px-4 sm:px-6 lg:px-5" : "max-w-7xl px-4 sm:px-6 lg:px-8"}`}>
         <div className="flex items-center gap-2.5">
           <motion.span
             whileHover={{ rotate: -8, scale: 1.05 }}

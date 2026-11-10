@@ -115,6 +115,7 @@ export function GameView({
     toY: number;
   }[]>([]);
   const lastAnimatedPlaySeq = useRef<number | null>(null);
+  const pendingSelfPlayOrigins = useRef(new Map<string, DOMRect>());
   const previousHandCounts = useRef<Record<string, number> | null>(null);
   const unoNoticeTimer = useRef<number | null>(null);
   const prevTurnRef = useState({ id: game.currentPlayerId })[0];
@@ -212,11 +213,17 @@ export function GameView({
 
     const to = discard.getBoundingClientRect();
     const animations = unseen.flatMap((action) => {
-      if (action.actorId === selfId || !action.actorId || !action.card) return [];
-      const opponent = Array.from(document.querySelectorAll<HTMLElement>("[data-player-avatar]"))
-        .find((element) => element.dataset.playerAvatar === action.actorId);
-      if (!opponent) return [];
-      const from = opponent.getBoundingClientRect();
+      if (!action.actorId || !action.card) return [];
+      let from: DOMRect | null = null;
+      if (action.actorId === selfId) {
+        from = pendingSelfPlayOrigins.current.get(action.card.id) ?? null;
+        pendingSelfPlayOrigins.current.delete(action.card.id);
+      } else {
+        const opponent = Array.from(document.querySelectorAll<HTMLElement>("[data-player-avatar]"))
+          .find((element) => element.dataset.playerAvatar === action.actorId);
+        if (opponent) from = opponent.getBoundingClientRect();
+      }
+      if (!from) return [];
       return [{
         seq: action.seq,
         card: action.card,
@@ -246,6 +253,12 @@ export function GameView({
   }, [flyingCard?.seq]);
 
   const finishPlay = (card: Card, chosenColor?: CardColor, matchingIds?: string[]) => {
+    pendingSelfPlayOrigins.current.clear();
+    const handCards = Array.from(document.querySelectorAll<HTMLElement>("[data-hand-card-id]"));
+    for (const cardId of matchingIds?.length ? matchingIds : [card.id]) {
+      const handCard = handCards.find((element) => element.dataset.handCardId === cardId);
+      if (handCard) pendingSelfPlayOrigins.current.set(cardId, handCard.getBoundingClientRect());
+    }
     sfx.play();
     dispatch({ kind: "game:play-card", playerId: selfId, cardId: card.id, chosenColor, matchingCardIds: matchingIds });
   };
@@ -386,21 +399,6 @@ export function GameView({
                   game.activeColor === "wild" && "bg-gradient-to-br from-[#ff4d4d] via-[#ffd24a] to-[#3fa8ff]",
                 )}
               />
-              <button
-                onClick={() => {
-                  markRead();
-                  setChatOpen(true);
-                }}
-                className="relative ml-auto flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/70 transition hover:bg-white/10"
-                aria-label={unreadCount > 0 ? `Buka chat, ${unreadCount} pesan baru` : "Buka chat"}
-              >
-                <Icon name="comment-dots" size={14} />
-                {unreadCount > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[#111321] bg-rose-500 px-1 text-[0.5rem] font-extrabold leading-none text-white shadow">
-                    {unreadCount > 99 ? "99+" : unreadCount}
-                  </span>
-                )}
-              </button>
             </div>
             <p className="rounded-xl border border-[#ff8a3d]/35 bg-[#171018]/90 px-3 py-2 text-center text-xs font-semibold leading-snug text-white/90 shadow-sm">
               {playHint}
@@ -466,6 +464,24 @@ export function GameView({
           <ChatPanel messages={chat} selfId={selfId} disabled={!room.settings.chatEnabled} typingNames={typingNames} onTyping={onTyping} onSend={(content) => dispatch({ kind: "chat:send", playerId: selfId, content })} />
         </div>
       </div>
+
+      {!chatOpen && (
+        <button
+          onClick={() => {
+            markRead();
+            setChatOpen(true);
+          }}
+          className="fixed bottom-5 right-5 z-[45] flex h-14 w-14 items-center justify-center rounded-full border border-white/20 bg-gradient-to-br from-[#ff5b6e] to-[#ff8147] text-white shadow-[0_10px_28px_rgba(255,91,110,0.4)] transition hover:scale-105 hover:brightness-110 md:hidden"
+          aria-label={unreadCount > 0 ? `Buka chat, ${unreadCount} pesan baru` : "Buka chat"}
+        >
+          <Icon name="comment-dots" size={22} />
+          {unreadCount > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#111321] bg-rose-500 px-1 text-[0.6rem] font-extrabold leading-none text-white shadow">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          )}
+        </button>
+      )}
 
       <AnimatePresence>
         {chatOpen && (
@@ -617,8 +633,7 @@ export function GameView({
       {flyingCard && (
         <motion.div
           key={flyingCard.seq}
-          className="pointer-events-none fixed left-0 top-0 z-[3]"
-          style={{ zIndex: 3 }}
+          className="pointer-events-none fixed left-0 top-0 z-[80]"
           initial={{ x: flyingCard.fromX, y: flyingCard.fromY, scale: 0.65, rotate: -18, opacity: 0 }}
           animate={{ x: flyingCard.toX, y: flyingCard.toY, scale: 1, rotate: 0, opacity: [0, 1, 1, 0.9] }}
           transition={{ duration: 0.72, ease: [0.2, 0.75, 0.25, 1], times: [0, 0.15, 0.82, 1] }}

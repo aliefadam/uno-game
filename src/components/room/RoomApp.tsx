@@ -250,7 +250,7 @@ export function RoomApp({ code }: { code: string }) {
 
     return (
       <div className={showGame ? "flex h-dvh min-h-0 flex-col overflow-hidden" : "min-h-screen"}>
-        <Header onlineHint={1} />
+        <Header onlineHint={1} roomLayout={showGame} />
         {showGame && snapshot.game ? (
           <GameView
             room={snapshot.room}
@@ -294,7 +294,7 @@ export function RoomApp({ code }: { code: string }) {
 
   return (
     <div className={isGameActive ? "flex h-dvh min-h-0 flex-col overflow-hidden" : "min-h-screen"}>
-      <Header onlineHint={1} />
+      <Header onlineHint={1} roomLayout={isGameActive} />
       {isGameActive && snapshot.game ? (
         <GameView
           room={snapshot.room}
