@@ -91,8 +91,9 @@ export function LobbyView({
   const settings = room.settings;
 
   const connectedCount = players.filter((p) => p.connectionStatus !== "disconnected").length;
+  const disconnectedPlayers = players.filter((p) => p.connectionStatus !== "connected");
   const notReadyHumans = players.filter((p) => !p.isBot && !p.isReady);
-  const canStart = isHost && connectedCount >= settings.minPlayers && notReadyHumans.length === 0;
+  const canStart = isHost && connectedCount >= settings.minPlayers && disconnectedPlayers.length === 0 && notReadyHumans.length === 0;
 
   const copy = async (text: string, label: string) => {
     try {
@@ -231,7 +232,9 @@ export function LobbyView({
           </div>
           {isHost && !canStart && (
             <p className="mt-2 text-center text-xs text-amber-300/80 sm:text-left">
-              {connectedCount < settings.minPlayers
+              {disconnectedPlayers.length > 0
+                ? "Tunggu sampai semua pemain tersambung sebelum memulai."
+                : connectedCount < settings.minPlayers
                 ? `Minimal ${settings.minPlayers} pemain terhubung untuk memulai.`
                 : "Semua pemain (bukan bot) harus Ready dulu."}
             </p>

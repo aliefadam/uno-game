@@ -834,7 +834,12 @@ export class RoomChannel {
       case "game:start": {
         if (room.hostPlayerId !== action.playerId) return;
         if (room.status !== "waiting" && room.status !== "ready") return;
-        const activePlayers = players.filter((p) => p.connectionStatus !== "disconnected");
+        const disconnectedPlayers = players.filter((player) => player.connectionStatus !== "connected");
+        if (disconnectedPlayers.length > 0) {
+          this.pushNotice("Tunggu sampai semua pemain tersambung sebelum memulai pertandingan.");
+          return;
+        }
+        const activePlayers = players;
         if (activePlayers.length < room.settings.minPlayers) {
           this.pushNotice(`Minimal ${room.settings.minPlayers} pemain untuk memulai.`);
           return;

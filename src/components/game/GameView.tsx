@@ -11,7 +11,7 @@ import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useToast } from "@/components/ui/Toast";
 import { OpponentsBar, TableCenter } from "./TableArea";
 import { PlayerHand } from "./PlayerHand";
-import { PlayingCard } from "./PlayingCard";
+import { CardBack, PlayingCard } from "./PlayingCard";
 import { ColorPickerModal } from "./ColorPickerModal";
 import { WinModal } from "./WinModal";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
@@ -100,7 +100,8 @@ export function GameView({
   const [matchingCardIds, setMatchingCardIds] = useState<string[]>([]);
   const [flyingCard, setFlyingCard] = useState<{
     seq: number;
-    card: Card;
+    card: Card | null;
+    drawCount?: number;
     fromX: number;
     fromY: number;
     toX: number;
@@ -108,13 +109,15 @@ export function GameView({
   } | null>(null);
   const [queuedFlyingCards, setQueuedFlyingCards] = useState<{
     seq: number;
-    card: Card;
+    card: Card | null;
+    drawCount?: number;
     fromX: number;
     fromY: number;
     toX: number;
     toY: number;
   }[]>([]);
   const lastAnimatedPlaySeq = useRef<number | null>(null);
+  const lastAnimatedDrawSeq = useRef<number | null>(null);
   const pendingSelfPlayOrigins = useRef(new Map<string, DOMRect>());
   const previousHandCounts = useRef<Record<string, number> | null>(null);
   const unoNoticeTimer = useRef<number | null>(null);
@@ -235,6 +238,36 @@ export function GameView({
     });
     if (animations.length) setQueuedFlyingCards((current) => [...current, ...animations]);
   }, [game.recentPlays, game.lastAction?.seq, selfId]);
+
+  useEffect(() => {
+    const action = game.lastAction;
+    if (lastAnimatedDrawSeq.current === null) {
+      lastAnimatedDrawSeq.current = action?.seq ?? 0;
+      return;
+    }
+    if (!action || action.seq <= lastAnimatedDrawSeq.current) return;
+    lastAnimatedDrawSeq.current = action.seq;
+    if (action.type !== "draw" || !action.actorId) return;
+
+    const deck = document.querySelector<HTMLElement>("[data-draw-pile]");
+    const target = action.actorId === selfId
+      ? document.querySelector<HTMLElement>('[aria-label^="Kartu di tangan"]')
+      : Array.from(document.querySelectorAll<HTMLElement>("[data-player-avatar]"))
+        .find((element) => element.dataset.playerAvatar === action.actorId) ?? null;
+    if (!deck || !target) return;
+
+    const from = deck.getBoundingClientRect();
+    const to = target.getBoundingClientRect();
+    setQueuedFlyingCards((current) => [...current, {
+      seq: action.seq,
+      card: null,
+      drawCount: action.count ?? 1,
+      fromX: from.left + from.width / 2 - 32,
+      fromY: from.top + from.height / 2 - 48,
+      toX: to.left + to.width / 2 - 32,
+      toY: to.top + to.height / 2 - 48,
+    }]);
+  }, [game.lastAction, selfId]);
 
   useEffect(() => {
     if (flyingCard || queuedFlyingCards.length === 0) return;
@@ -638,7 +671,18 @@ export function GameView({
           animate={{ x: flyingCard.toX, y: flyingCard.toY, scale: 1, rotate: 0, opacity: [0, 1, 1, 0.9] }}
           transition={{ duration: 0.72, ease: [0.2, 0.75, 0.25, 1], times: [0, 0.15, 0.82, 1] }}
         >
-          <PlayingCard card={flyingCard.card} className="w-16 drop-shadow-[0_12px_24px_rgba(0,0,0,0.55)]" />
+          {flyingCard.card ? (
+            <PlayingCard card={flyingCard.card} className="w-16 drop-shadow-[0_12px_24px_rgba(0,0,0,0.55)]" />
+          ) : (
+            <div className="relative aspect-[2/3] w-16 drop-shadow-[0_12px_24px_rgba(0,0,0,0.55)]">
+              <CardBack className="h-full w-full" />
+              {(flyingCard.drawCount ?? 1) > 1 && (
+                <span className="absolute -right-2 -top-2 flex h-6 min-w-6 items-center justify-center rounded-full border-2 border-[#111321] bg-amber-400 px-1 text-[0.62rem] font-black text-[#211500] shadow-lg">
+                  +{flyingCard.drawCount}
+                </span>
+              )}
+            </div>
+          )}
         </motion.div>
       )}
     </div>

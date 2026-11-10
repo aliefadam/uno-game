@@ -104,6 +104,7 @@ export function TableCenter({
     <div className="uno-table-center flex w-full min-w-0 flex-col items-center gap-3 px-2 py-4">
       <div className="flex items-center gap-5 sm:gap-8">
         <button
+          data-draw-pile
           onClick={onDraw}
           disabled={!canDraw}
           className={cn(
